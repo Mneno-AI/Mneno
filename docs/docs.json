@@ -1,0 +1,52 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "Mneno",
+  "colors": {
+    "primary": "#8B5CF6",
+    "light": "#C4B5FD",
+    "dark": "#6D28D9"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "index",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/scoring",
+              "concepts/compaction",
+              "concepts/context-building",
+              "concepts/storage"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/providers",
+              "advanced/import-export"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/Mneno-AI/Mneno"
+    }
+  }
+}

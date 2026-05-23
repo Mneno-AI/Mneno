@@ -40,9 +40,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/lollopanta/mneno"
-Issues = "https://github.com/lollopanta/mneno/issues"
-Source = "https://github.com/lollopanta/mneno"
+Homepage = "https://github.com/Mneno-AI/Mneno"
+Issues = "https://github.com/Mneno-AI/Mneno/issues"
+Source = "https://github.com/Mneno-AI/Mneno"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mneno"]

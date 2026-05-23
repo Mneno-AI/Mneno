@@ -1,0 +1,84 @@
+---
+title: "Persistent Storage"
+description: "Configure how Mneno saves and retrieves memories."
+---
+
+Mneno defaults to in-memory storage, but it also provides built-in support for local persistence via JSON files or SQLite databases.
+
+## Storage Options
+
+### In-Memory Storage
+
+Best for tests, demos, and short-lived processes where persistence is not required.
+
+```python
+from mneno import MemoryClient
+from mneno.storage import InMemoryMemoryStore
+
+# Default behavior
+client = MemoryClient()
+
+# Explicitly using in-memory
+client = MemoryClient(storage=InMemoryMemoryStore())
+```
+
+### JSON File Storage
+
+Best for simple local development, configuration files, or when you want human-readable storage.
+
+```python
+from mneno.storage import JSONFileStorage
+
+client = MemoryClient(storage=JSONFileStorage("data/memories.json"))
+```
+
+- **Pros**: Human-readable, easy to debug, easy to version control.
+- **Cons**: Slower for large datasets (entire file is read/written on every update).
+
+### SQLite Storage
+
+Best for durable local applications and larger memory sets.
+
+```python
+from mneno.storage import SQLiteStorage
+
+client = MemoryClient(storage=SQLiteStorage("data/mneno.db"))
+```
+
+- **Pros**: Fast, durable, handles larger memory sets efficiently.
+- **Cons**: Not human-readable without a SQLite client.
+
+## Switching Storage
+
+You can easily switch storage backends without changing your application logic. All storage backends implement the same `MemoryStore` protocol.
+
+```python
+from mneno.storage import JSONFileStorage, SQLiteStorage
+
+# To migrate, you can export from one and import into another
+old_client = MemoryClient(storage=JSONFileStorage("data/old.json"))
+payload = old_client.export_json()
+
+new_client = MemoryClient(storage=SQLiteStorage("data/new.db"))
+new_client.import_json("data/old.json")
+```
+
+## Custom Storage
+
+If you need to support an external database (e.g., PostgreSQL, Redis, or a Vector DB), you can implement the `MemoryStore` protocol.
+
+```python
+from mneno.storage.base import MemoryStore
+from mneno.models import Memory
+
+class MyCustomStorage(MemoryStore):
+    def add(self, memory: Memory) -> Memory:
+        # Your implementation
+        pass
+
+    def get(self, memory_id: str) -> Memory | None:
+        # Your implementation
+        pass
+
+    # ... and so on
+```

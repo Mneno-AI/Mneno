@@ -1,0 +1,88 @@
+---
+title: "Provider Architecture"
+description: "Integrate Mneno with external AI services like embeddings and rerankers."
+---
+
+Mneno is provider-agnostic. While the core runtime is deterministic and local by default, you can easily integrate external services to enhance retrieval and context building.
+
+## Supported Providers
+
+Mneno currently supports three types of providers via standard protocols:
+
+- **EmbeddingProvider**: Used for semantic search and relevance scoring.
+- **RerankerProvider**: Used for second-stage ranking of search results.
+- **LLMProvider**: Used for future features like summary generation and complex compaction.
+
+## Integrating an Embedding Provider
+
+To enable semantic search, pass an `EmbeddingProvider` to the `MemoryClient`.
+
+```python
+from mneno import MemoryClient
+from mneno.providers.embedding import DummyEmbeddingProvider
+
+# Using the built-in dummy provider for local testing
+client = MemoryClient(
+    embedding_provider=DummyEmbeddingProvider(dimensions=1536)
+)
+
+# Search with semantic relevance enabled
+results = client.search("AI memory SDK", use_semantic=True)
+```
+
+### Implementing a Custom Provider
+
+You can integrate any service (OpenAI, Voyage AI, Cohere, etc.) by implementing the `EmbeddingProvider` protocol.
+
+```python
+from typing import list
+
+class MyOpenAIProvider:
+    name = "openai"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        # Call OpenAI API and return embeddings
+        pass
+
+client = MemoryClient(embedding_provider=MyOpenAIProvider())
+```
+
+## Integrating a Reranker Provider
+
+Rerankers are used to re-order candidate memories after the initial scoring phase.
+
+```python
+from mneno.providers.reranker import DummyRerankerProvider
+
+client = MemoryClient(
+    reranker_provider=DummyRerankerProvider()
+)
+
+# Search with reranking enabled
+results = client.search("What is the user building?", use_reranker=True)
+
+for result in results:
+    print(f"Original Rank: {result.original_rank}")
+    print(f"Reranked Rank: {result.reranked_rank}")
+    print(f"Reason: {result.rerank_reason}")
+```
+
+## Provider Registry
+
+Mneno includes a `ProviderRegistry` to help you manage and swap providers dynamically.
+
+```python
+from mneno.providers import ProviderRegistry
+
+registry = ProviderRegistry()
+registry.register_embedding("openai", MyOpenAIProvider())
+
+provider = registry.get_embedding("openai")
+```
+
+## Why Protocols?
+
+By using protocols instead of direct dependencies:
+- **Zero Core Bloat**: Mneno doesn't force you to install large SDKs like `openai` or `cohere`.
+- **Future Proof**: You can swap providers as better models become available without changing your core memory logic.
+- **Testability**: Use dummy providers for fast, deterministic local tests.

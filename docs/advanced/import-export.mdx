@@ -1,0 +1,68 @@
+---
+title: "Import, Export & Backup"
+description: "Migrate and back up your memory data with ease."
+---
+
+Mneno provides built-in tools for exporting memories to JSON, importing them back, and creating timestamped backups. This is essential for data migration, persistence, and disaster recovery.
+
+## Exporting Memories
+
+You can export your entire memory store to a JSON payload or directly to a file.
+
+```python
+# Get a JSON-serializable dictionary
+payload = client.export_json()
+
+# Export directly to a file
+client.export_json("exports/my_memories.json")
+```
+
+The exported file includes a version field to ensure compatibility with future Mneno versions.
+
+## Importing Memories
+
+Importing allows you to load memories from a previous export. Mneno supports several import modes to handle conflicting IDs:
+
+```python
+# Import from a file
+result = client.import_json("exports/my_memories.json", mode="append")
+
+print(f"Imported: {result.imported_count}")
+print(f"Skipped: {result.skipped_count}")
+```
+
+### Import Modes
+
+| Mode | Description |
+| :--- | :--- |
+| `append` | Add memories; if an ID exists, a new unique ID is generated for the copy. |
+| `replace` | Clear the current store first, then import everything. |
+| `skip_existing` | Keep existing memories; don't import anything with a conflicting ID. |
+| `overwrite` | Replace existing memories with imported ones if they share the same ID. |
+
+## Backups
+
+Backups are a specialized form of export that use timestamped filenames by default.
+
+```python
+# Create a backup in the 'backups/' directory
+backup_path = client.backup()
+print(f"Backup created at: {backup_path}")
+# Output: backups/mneno-backup-20260524-120000.json
+```
+
+## Restore
+
+Restoring is a shortcut for a `replace` or `append` import from a backup file.
+
+```python
+# Restore from a backup (replaces current memories by default)
+client.restore("backups/mneno-backup-20260524-120000.json")
+
+# Append from a backup instead
+client.restore("backups/mneno-backup-20260524-120000.json", mode="append")
+```
+
+## Validation
+
+Mneno validates the format and version of all incoming JSON payloads during import. If a file is corrupted or uses an unsupported format version, Mneno will raise a clear error to prevent data corruption.

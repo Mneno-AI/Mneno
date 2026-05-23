@@ -1,0 +1,69 @@
+---
+title: "Auto-Compaction"
+description: "Prevent context rot by merging and discarding low-value memories."
+---
+
+As your agent runs, it accumulates memories. Some are high-value long-term facts, while others are transient noise or duplicates. Mneno's **Auto-Compaction** engine helps keep your memory store lean and useful.
+
+## How Compaction Works
+
+The compaction engine analyzes your memories and makes one of three decisions for each:
+
+- **Kept**: The memory is high-value or recently updated and remains unchanged.
+- **Merged**: Near-duplicate memories are combined into a single, consolidated memory.
+- **Discarded**: Stale or low-scoring memories are removed to save space and reduce noise.
+
+## Preview vs. Compact
+
+Mneno allows you to preview the changes before they are applied to your storage.
+
+```python
+# Analyze memories and see what would happen
+diff = client.preview_compaction()
+
+print(diff.summary)
+# Output: Compacted 100 memories into 60: kept 40, merged 30, discarded 30, created 10.
+
+for decision in diff.discarded:
+    print(f"Discarded {decision.memory_id}: {decision.reason}")
+```
+
+To actually apply the changes, use the `compact()` method:
+
+```python
+diff = client.compact()
+print(f"Reduction ratio: {diff.stats.estimated_reduction_ratio:.2%}")
+```
+
+## Compaction Policy
+
+You can control how aggressive compaction is by passing a `CompactionPolicy`.
+
+```python
+from mneno.compaction import CompactionPolicy
+
+policy = CompactionPolicy(
+    max_memories=500,           # Hard limit on total memories
+    min_score_to_keep=0.3,      # Discard anything scoring below this
+    merge_duplicates=True,      # Consolidate similar memories
+    stale_after_days=90,        # Discard low-importance memories older than this
+    preserve_tags=["pinned"]    # Never discard memories with these tags
+)
+
+client.compact(policy=policy)
+```
+
+### Policy Parameters
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `max_memories` | `None` | If set, forces the store down to this many memories, prioritizing high scores. |
+| `min_score_to_keep` | `0.20` | Memories with a total score below this are candidates for deletion. |
+| `merge_duplicates` | `True` | Whether to merge memories with high token overlap. |
+| `stale_after_days` | `180` | Age at which low-importance memories are considered stale. |
+| `preserve_memory_types` | `[operational, preference]` | Memory types that are never automatically discarded. |
+| `preserve_tags` | `[]` | Tags that prevent a memory from being discarded. |
+
+## Explainable Merges
+
+When memories are merged, Mneno creates a new memory that consolidates the metadata and tags of the sources. The `CompactionDiff` includes a list of `created` memories and links them to the `merged` sources via `related_memory_ids`.

@@ -1,0 +1,77 @@
+---
+title: "Quickstart"
+description: "Install Mneno and start adding memories in minutes."
+---
+
+## Installation
+
+Install Mneno using pip:
+
+```bash
+pip install mneno
+```
+
+## Basic Usage
+
+Here is a simple example of how to use Mneno to add memories and search through them.
+
+```python
+from mneno import MemoryClient
+
+# Initialize the client (defaults to in-memory storage)
+client = MemoryClient()
+
+# Add memories
+client.add(
+    "The user is building Mneno, a Python SDK for explainable AI memory.",
+    memory_type="semantic",
+    importance=0.9,
+    tags=["project", "mneno"],
+)
+
+client.add(
+    "User prefers lightweight Python-first SDKs.",
+    memory_type="preference",
+    importance=0.85,
+)
+
+# Search memories
+results = client.search("What is the user building?")
+
+for result in results:
+    print(f"Content: {result.memory.content}")
+    print(f"Score: {result.score.total}")
+    print(f"Reasons: {result.score.reasons}")
+```
+
+## Build Context for Prompts
+
+Mneno can help you build the perfect context for your LLM prompts, ensuring you stay within a token budget.
+
+```python
+# Build a context package with a 50-token budget
+context = client.build_context("What is the user building?", budget=50)
+
+print(context.text)
+
+# See why items were included
+for item in context.included:
+    print(f"Included: {item.memory_id} (Reason: {item.reason})")
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Scoring" icon="star" href="/concepts/scoring">
+    Learn how Mneno ranks memories.
+  </Card>
+  <Card title="Compaction" icon="compress" href="/concepts/compaction">
+    Prevent context rot with auto-compaction.
+  </Card>
+  <Card title="Storage" icon="database" href="/concepts/storage">
+    Configure persistent storage.
+  </Card>
+  <Card title="Providers" icon="plug" href="/advanced/providers">
+    Integrate with embeddings and rerankers.
+  </Card>
+</CardGroup>

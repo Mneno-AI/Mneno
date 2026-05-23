@@ -1,0 +1,66 @@
+---
+title: "Memory Scoring"
+description: "Understand how Mneno ranks and weights memories."
+---
+
+Mneno uses a multi-signal scoring engine to rank memories. This ensures that the most relevant, recent, and important information is always prioritized.
+
+## Scoring Signals
+
+The final score of a memory is a weighted average of several signals:
+
+- **Relevance**: How well the memory matches the search query. Mneno uses both keyword overlap and optional semantic similarity.
+- **Importance**: A manual or model-assigned priority score (0.0 to 1.0).
+- **Recency**: How recently the memory was updated. Scores decay over time based on a configurable half-life.
+- **Frequency**: How often the memory has been accessed by the agent.
+- **Freshness**: How long ago the memory was originally created.
+
+## Explainable Scores
+
+Every search result includes a `MemoryScore` object that explains exactly why a memory was ranked the way it was.
+
+```python
+results = client.search("What is Mneno?")
+
+for result in results:
+    score = result.score
+    print(f"Total Score: {score.total}")
+    print(f"Signals: Rel={score.relevance}, Imp={score.importance}, Rec={score.recency}")
+    print(f"Reasons: {score.reasons}")
+```
+
+### Example Reasons
+- `Matched query term: mneno`
+- `High importance memory`
+- `Recently updated`
+- `Frequently accessed memory`
+
+## Customizing Weights
+
+You can customize how Mneno weighs different signals by passing a `MemoryPolicy` to the `MemoryClient`.
+
+```python
+from mneno import MemoryClient, MemoryPolicy
+
+# Create a policy that prioritizes recency over importance
+policy = MemoryPolicy(
+    recency_weight=0.5,
+    importance_weight=0.1,
+    relevance_weight=0.3,
+    access_weight=0.1
+)
+
+client = MemoryClient(policy=policy)
+```
+
+### Policy Parameters
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `recency_weight` | 0.25 | Weight for the recency signal. |
+| `importance_weight` | 0.35 | Weight for the importance signal. |
+| `relevance_weight` | 0.25 | Weight for the relevance (keyword/semantic) signal. |
+| `access_weight` | 0.15 | Weight for the access frequency signal. |
+| `freshness_weight` | 0.10 | Weight for the original creation age. |
+| `recency_half_life_days` | 30.0 | Days it takes for recency score to drop by 50%. |
+| `freshness_decay_days` | 180.0 | Days until a memory is considered "stale" (0 freshness). |

@@ -1,0 +1,80 @@
+---
+title: "Context Building"
+description: "Build optimal context for your LLM prompts within a token budget."
+---
+
+When sending memories to an LLM, you often face a token budget. Mneno's **Context Builder** helps you select the most relevant memories that fit within a specified budget, while explaining why each was included or excluded.
+
+## Building Context
+
+Use the `build_context()` method to generate a `ContextPackage`.
+
+```python
+# Build context for a query with a 500-token budget
+context = client.build_context("What is the user's favorite language?", budget=500)
+
+# The formatted string ready for your prompt
+print(context.text)
+# Output:
+# Relevant memories:
+# - User prefers Python for data science.
+# - User recently switched to Rust for systems programming.
+
+# Check the stats
+print(f"Tokens used: {context.stats.used_tokens}/{context.stats.max_tokens}")
+```
+
+## Presets
+
+Mneno comes with several built-in presets for common use cases:
+
+- `cheap`: Smallest useful context, optimized for cost. (max 400 tokens)
+- `balanced`: Default tradeoff between quality and cost. (max 1200 tokens)
+- `high_recall`: Includes more context to avoid missing useful memories. (max 2500 tokens)
+- `agent_state`: Prioritizes operational state, goals, constraints, and preferences.
+
+```python
+# Use the high_recall preset
+context = client.build_context("Analyze the project history", preset="high_recall")
+```
+
+## Custom Policies
+
+For full control, you can define a `ContextPolicy`.
+
+```python
+from mneno.context import ContextPolicy
+
+custom_policy = ContextPolicy(
+    max_tokens=800,
+    reserve_tokens=100,      # Tokens to keep free
+    min_score=0.25,          # Don't include low-quality memories
+    strategy="importance",   # Sort by importance instead of search score
+    max_items=10             # Limit the number of items regardless of tokens
+)
+
+context = client.build_context("What matters now?", policy=custom_policy)
+```
+
+### Policy Parameters
+
+| Parameter | Default | Description |
+| :--- | :--- | :--- |
+| `max_tokens` | 1200 | Total token budget for the context. |
+| `reserve_tokens` | 200 | Tokens to reserve (subtracted from `max_tokens`). |
+| `min_score` | 0.15 | Minimum score required for inclusion. |
+| `strategy` | `"score"` | How to sort candidates (`score`, `recency`, or `importance`). |
+| `max_items` | `None` | Hard limit on the number of memories included. |
+| `dedupe` | `True` | Whether to remove memories with duplicate content. |
+
+## Explainable Context
+
+The `ContextPackage` contains detailed lists of `included` and `excluded` items, each with a reason.
+
+```python
+for item in context.excluded:
+    print(f"Excluded {item.memory_id}: {item.reason}")
+    # Reasons: "Excluded because budget exhausted", "Excluded because score 0.05 is below min_score 0.15"
+```
+
+This transparency is crucial for debugging why an LLM might have missed specific information.

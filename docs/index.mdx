@@ -1,0 +1,34 @@
+---
+title: "Introduction"
+description: "Mneno is an anti-context-rot memory runtime for AI agents and AI applications."
+---
+
+Mneno is a Python SDK for developers building copilots, support agents, internal AI tools, and long-running AI applications.
+
+It is not just a memory store. Mneno is an **anti-context-rot memory runtime**: it keeps context useful, compact, explainable, and verifiable as an application runs over time.
+
+## Why Mneno?
+
+Long-running AI systems accumulate stale facts, duplicated notes, noisy transcripts, and vague summaries. That context eventually makes retrieval worse, not better. 
+
+Mneno is built around **scoring**, **compaction**, and **explainable diffs** so developers can see what memory was kept, merged, discarded, and why.
+
+## Key Features
+
+- **Memory Scoring**: Rank memories by recency, relevance, importance, and freshness signals.
+- **Explainable Retrieval**: Search returns ranked results with score components and reasons.
+- **Auto-Compaction**: Preserve key claims when context gets too large or noisy.
+- **Context Building**: Build deterministic context packages for prompt injection within a token budget.
+- **Persistent Storage**: Support for in-memory, JSON file, and SQLite storage.
+- **Provider Agnostic**: Protocol-based integration for embeddings, LLMs, and rerankers.
+
+## Getting Started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get Mneno up and running in minutes.
+  </Card>
+  <Card title="Core Concepts" icon="brain" href="/concepts/scoring">
+    Learn how Mneno handles memory and context.
+  </Card>
+</CardGroup>

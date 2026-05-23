@@ -137,6 +137,157 @@ Available presets:
 - `high_recall`: includes more context to avoid missing useful memories.
 - `agent_state`: prioritizes operational state, goals, constraints, and preferences.
 
+## Persistent Storage
+
+Mneno defaults to in-memory storage for tests, demos, and short-lived processes. For local persistence, use JSON file or
+SQLite storage.
+
+```python
+from mneno import MemoryClient
+from mneno.storage import JSONFileStorage, SQLiteStorage
+
+client = MemoryClient(storage=JSONFileStorage("data/memories.json"))
+client.add("User prefers Python.", importance=0.9)
+
+client = MemoryClient(storage=SQLiteStorage("data/mneno.db"))
+client.add("User is building Mneno.", importance=0.95)
+```
+
+Use:
+
+- `InMemoryStorage` for tests and demos.
+- `JSONFileStorage` for simple local development and human-readable files.
+- `SQLiteStorage` for durable local apps and larger memory sets.
+
+External database adapters will come later as optional integrations.
+
+## Import, Export, Backup, And Restore
+
+Mneno exports memories with a versioned JSON format. Backups are normal export files, and import validation prevents
+silent corruption from unknown formats or unsupported versions.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+client.add("User prefers Python.", importance=0.9)
+
+payload = client.export_json()
+
+client.export_json("exports/memories.json")
+
+backup_path = client.backup()
+
+client.restore("backups/mneno-backup-20260101-120000.json")
+
+client.import_json("exports/memories.json", mode="skip_existing")
+```
+
+Import modes:
+
+- `append`: add imported memories; conflicting IDs are copied with new IDs.
+- `replace`: clear current storage first, then import.
+- `skip_existing`: keep existing memories with matching IDs.
+- `overwrite`: replace existing memories with imported memories of the same ID.
+
+Cloud sync is future work. The current import/export tools are local and deterministic.
+
+## Provider Architecture
+
+Mneno is provider-agnostic. The core runtime remains deterministic and local by default, while Phase 2 introduces
+stable plugin contracts for future integrations.
+
+Current provider interfaces:
+
+- `EmbeddingProvider`
+- `LLMProvider`
+- `RerankerProvider`
+- `ProviderRegistry`
+
+No real OpenAI, Anthropic, Cohere, HuggingFace, vector database, graph database, or network provider is included in
+core. Future integrations should be optional adapters that implement these contracts.
+
+```python
+from mneno.providers import ProviderRegistry
+from mneno.providers.embedding import DummyEmbeddingProvider
+
+registry = ProviderRegistry()
+registry.register_embedding("dummy", DummyEmbeddingProvider())
+
+provider = registry.get_embedding("dummy")
+vectors = provider.embed(["User prefers Python."])
+```
+
+The dummy providers are deterministic and local-only. They exist for tests, examples, and adapter development.
+
+## Semantic Retrieval With Providers
+
+Mneno can optionally use an `EmbeddingProvider` to add semantic relevance to search and context building. The default
+behavior remains deterministic keyword/scoring retrieval when no provider is configured.
+
+No real external providers are included in core yet. Future integrations can implement the `EmbeddingProvider`
+protocol without changing Mneno's local runtime.
+
+```python
+from mneno import MemoryClient
+from mneno.providers.embedding import DummyEmbeddingProvider
+
+client = MemoryClient(
+    embedding_provider=DummyEmbeddingProvider(),
+)
+
+client.add("User is building Mneno, an SDK for explainable AI memory.", importance=0.9)
+client.add("User likes Italian food.", importance=0.5)
+
+results = client.search(
+    "AI memory SDK project",
+    use_semantic=True,
+)
+
+for result in results:
+    print(result.memory.content)
+    print(result.score.total)
+    print(result.score.reasons)
+```
+
+Use `use_semantic=False` to force deterministic fallback search even when an embedding provider is configured. Mneno
+computes embeddings at search time for now; embedding caches, vector indexes, and vector database adapters are future
+work.
+
+## Reranker-Powered Retrieval
+
+Mneno can optionally apply a second-stage reranker after candidate generation. Candidate generation still uses the
+deterministic scorer and, when configured, optional semantic relevance. The reranker only reorders candidates and adds
+explainable reranking metadata.
+
+No external reranker integrations are included in core. Future providers can implement `RerankerProvider`.
+
+```python
+from mneno import MemoryClient
+from mneno.providers.reranker import DummyRerankerProvider
+
+client = MemoryClient(
+    reranker_provider=DummyRerankerProvider(),
+)
+
+client.add("User is building Mneno, an AI memory SDK.", importance=0.5)
+client.add("Unrelated high-priority note.", importance=1.0)
+
+results = client.search(
+    "AI memory SDK",
+    use_reranker=True,
+)
+
+for result in results:
+    print(result.memory.content)
+    print(result.original_rank)
+    print(result.reranked_rank)
+    print(result.rerank_reason)
+```
+
+Use `use_reranker=False` to skip reranking even when a provider is configured. If `use_reranker=True` is passed without
+a provider, Mneno raises a clear provider error.
+
 ## Roadmap
 
 - In-memory MVP storage and scoring.
