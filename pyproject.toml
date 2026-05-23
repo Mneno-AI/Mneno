@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneno"
-version = "0.1.0"
+version = "0.1.1"
 description = "An anti-context-rot memory runtime for AI agents and AI applications."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,6 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "build>=1.2",
   "mypy>=1.10",
   "pre-commit>=3.7",
   "pytest>=8.2",

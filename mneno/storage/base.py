@@ -18,3 +18,12 @@ class MemoryStore(Protocol):
 
     def list(self) -> list[Memory]:
         """Return all memories."""
+
+    def update(self, memory: Memory) -> Memory:
+        """Replace an existing memory."""
+
+    def delete(self, memory_id: str) -> bool:
+        """Delete a memory by ID."""
+
+    def clear(self) -> None:
+        """Delete all memories."""

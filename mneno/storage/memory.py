@@ -21,11 +21,24 @@ class InMemoryMemoryStore:
     def list(self) -> list[Memory]:
         return list(self._memories.values())
 
+    def update(self, memory: Memory) -> Memory:
+        if memory.id not in self._memories:
+            raise KeyError(f"Memory not found: {memory.id}")
+        self._memories[memory.id] = memory.model_copy(update={"updated_at": utc_now()})
+        return self._memories[memory.id]
+
+    def delete(self, memory_id: str) -> bool:
+        return self._memories.pop(memory_id, None) is not None
+
+    def clear(self) -> None:
+        self._memories.clear()
+
     def record_access(self, memory_id: str) -> Memory | None:
         memory = self.get(memory_id)
         if memory is None:
             return None
 
-        updated = memory.model_copy(update={"access_count": memory.access_count + 1, "updated_at": utc_now()})
+        now = utc_now()
+        updated = memory.model_copy(update={"access_count": memory.access_count + 1, "last_accessed_at": now})
         self._memories[memory_id] = updated
         return updated
