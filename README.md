@@ -82,6 +82,61 @@ for decision in diff.discarded:
 Use `preview_compaction()` to inspect decisions without mutating storage. Use `compact()` to apply the diff to the
 local in-memory store.
 
+## Build Explainable Context
+
+Mneno can build a deterministic context package for prompt injection. It retrieves local memories, scores them, fits
+them inside an approximate token budget, and explains what was included or excluded.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+client.add("User is building Mneno.", importance=0.9)
+client.add("User prefers Python 3.11.", importance=0.8)
+
+context = client.build_context("What is the user building?", budget=50)
+
+print(context.text)
+
+for item in context.included:
+    print(item.reason)
+```
+
+The current budget uses a local approximate token estimator based on whitespace splitting. No tokenizer, LLM, embedding,
+or external service is required.
+
+## Policy-Driven Context Building
+
+Use presets for common cost and recall profiles:
+
+```python
+context = client.build_context("What matters now?", preset="cheap")
+context = client.build_context("What matters now?", preset="high_recall")
+context = client.build_context("What is the current agent state?", preset="agent_state")
+```
+
+Use a custom policy when you need explicit control:
+
+```python
+from mneno.context import ContextPolicy
+
+custom = ContextPolicy(
+    max_tokens=800,
+    reserve_tokens=100,
+    min_score=0.25,
+    strategy="importance",
+)
+
+context = client.build_context("What matters now?", policy=custom)
+```
+
+Available presets:
+
+- `cheap`: smallest useful context, optimized for cost.
+- `balanced`: default quality/cost tradeoff.
+- `high_recall`: includes more context to avoid missing useful memories.
+- `agent_state`: prioritizes operational state, goals, constraints, and preferences.
+
 ## Roadmap
 
 - In-memory MVP storage and scoring.

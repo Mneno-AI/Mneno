@@ -194,6 +194,106 @@ policy = CompactionPolicy(
 diff = client.preview_compaction(policy=policy)
 ```
 
+## Context Building
+
+`build_context()` produces prompt-ready memory text with inclusion and exclusion explanations. It scores local memories,
+sorts candidates, estimates token usage, and fits the most useful memories into a budget.
+
+```python
+from mneno import ContextBudget, MemoryClient
+
+client = MemoryClient()
+client.add("User is building Mneno.", importance=0.9)
+client.add("User prefers Python 3.11.", importance=0.8)
+
+context = client.build_context(
+    "What should the agent remember about the user project?",
+    budget=ContextBudget(max_tokens=50, reserve_tokens=10),
+)
+
+print(context.text)
+print(context.stats)
+
+for item in context.included:
+    print(item.reason)
+
+for item in context.excluded:
+    print(item.reason)
+```
+
+Context text uses a deterministic format:
+
+```text
+Relevant memories:
+- User is building Mneno.
+- User prefers Python 3.11.
+```
+
+Budgeting currently uses a lightweight local estimate:
+
+```python
+max(1, len(text.split()))
+```
+
+No tokenizer dependency is used yet. Included memories update `access_count` and `last_accessed_at`; excluded memories
+do not.
+
+Context selection supports three deterministic strategies:
+
+- `score`: total memory score descending.
+- `recency`: most recently updated memories first.
+- `importance`: highest importance memories first.
+
+## Context Policies And Presets
+
+Presets make context building easier when an application has a common cost or recall profile.
+
+```python
+context = client.build_context("What matters now?", preset="cheap")
+context = client.build_context("What matters now?", preset="balanced")
+context = client.build_context("What matters now?", preset="high_recall")
+context = client.build_context("What is the current agent state?", preset="agent_state")
+```
+
+The built-in presets are:
+
+- `cheap`: `400` max tokens, `100` reserved, score strategy, `0.35` min score, max `5` memories.
+- `balanced`: `1200` max tokens, `200` reserved, score strategy, `0.15` min score, max `15` memories.
+- `high_recall`: `2500` max tokens, `300` reserved, score strategy, `0.05` min score, max `40` memories.
+- `agent_state`: `1000` max tokens, `200` reserved, importance strategy, max `20` memories, preserves
+  `operational` and `preference` memories.
+
+Custom policies override presets:
+
+```python
+from mneno.context import ContextPolicy
+
+custom = ContextPolicy(
+    max_tokens=800,
+    reserve_tokens=100,
+    strategy="importance",
+    min_score=0.25,
+    max_items=10,
+    preserve_tags=["project"],
+)
+
+context = client.build_context("What matters now?", policy=custom)
+```
+
+Resolution order is:
+
+1. explicit `policy`
+2. explicit `budget`
+3. explicit `preset`
+4. `balanced`
+
+The old budget API remains supported:
+
+```python
+context = client.build_context("What matters now?", budget=1200)
+context = client.build_context("What matters now?", budget=ContextBudget(max_tokens=1200, reserve_tokens=200))
+```
+
 ## Request Models
 
 The public client validates inputs through Pydantic v2 request models:
@@ -221,6 +321,7 @@ request = AddMemoryRequest(
 - Ranked, explainable search results.
 - Explainable compaction diff structures.
 - Deterministic auto-compaction with explainable decisions.
+- Explainable context building with approximate token budgets.
 
 Provider integrations, vector databases, semantic graph storage, and LLM-based compaction will be optional
 extensions later.

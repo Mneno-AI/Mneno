@@ -1,6 +1,15 @@
 """Mneno: an anti-context-rot memory runtime for AI applications."""
 
 from mneno.client import MemoryClient
+from mneno.context import (
+    ContextBudget,
+    ContextItem,
+    ContextPackage,
+    ContextPolicy,
+    ContextPreset,
+    ContextStats,
+    ExcludedContextItem,
+)
 from mneno.models import (
     AddMemoryRequest,
     CompactionDecision,
@@ -21,6 +30,13 @@ __all__ = [
     "CompactionDecisionType",
     "CompactionDiff",
     "CompactionStats",
+    "ContextBudget",
+    "ContextItem",
+    "ContextPackage",
+    "ContextPolicy",
+    "ContextPreset",
+    "ContextStats",
+    "ExcludedContextItem",
     "Memory",
     "MemoryClient",
     "MemoryPolicy",
