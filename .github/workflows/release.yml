@@ -38,7 +38,7 @@ jobs:
           pytest
 
   build:
-    name: Build release distributions
+    name: Build universal release wheel
     runs-on: ubuntu-latest
     needs: test
 
@@ -57,17 +57,17 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build twine
 
-      - name: Build distribution
-        run: python -m build
+      - name: Build wheel
+        run: python -m build --wheel
 
-      - name: Check distribution
-        run: python -m twine check dist/*
+      - name: Check wheel
+        run: python -m twine check dist/*-py3-none-any.whl
 
-      - name: Upload distribution artifact
+      - name: Upload wheel artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mneno-release-dist
-          path: dist/*
+          name: mneno-release-py3-none-any-wheel
+          path: dist/*-py3-none-any.whl
           if-no-files-found: error
 
   publish-pypi:
@@ -80,10 +80,10 @@ jobs:
       url: https://pypi.org/project/mneno/
 
     steps:
-      - name: Download distribution artifact
+      - name: Download Linux wheel artifact
         uses: actions/download-artifact@v4
         with:
-          name: mneno-release-dist
+          name: mneno-release-py3-none-any-wheel
           path: dist
 
       - name: Publish package
