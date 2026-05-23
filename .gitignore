@@ -2,11 +2,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-**/node_modules/
-
-# Self-hosted server local runtime state
-server/history/
-server/.env
 
 # C extensions
 *.so
@@ -55,6 +50,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+.ruff_cache/
 
 # Translations
 *.mo
@@ -125,6 +121,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
 .venv
 env/
 venv/
@@ -167,25 +165,11 @@ cython_debug/
 .ideas.md
 .todos.md
 
-# Database
-db
-test-db
-
 .vscode
 .idea/
 
 .DS_Store
+Thumbs.db
 
-notebooks/*.yaml
 .ipynb_checkpoints/
-
-!configs/*.yaml
-
-# cache db
 *.db
-
-# local directories for testing
-eval/
-qdrant_storage/
-.crossnote
-testing.ipynb

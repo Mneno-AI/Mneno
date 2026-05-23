@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible problem in Mneno.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest code sample or steps that reproduce the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.11.x"
+    validations:
+      required: true
+  - type: input
+    id: mneno
+    attributes:
+      label: Mneno version
+      placeholder: "0.1.0"
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
