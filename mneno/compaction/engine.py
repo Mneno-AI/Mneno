@@ -18,6 +18,7 @@ from mneno.models import (
     MemoryType,
     utc_now,
 )
+from mneno.providers.llm import LLMProvider
 from mneno.scoring.temporal import TemporalMemoryScorer
 
 TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9]+")
@@ -33,9 +34,11 @@ class CompactionEngine:
         *,
         policy: CompactionPolicy | None = None,
         scorer: TemporalMemoryScorer | None = None,
+        llm_provider: LLMProvider | None = None,
     ) -> None:
         self.policy = policy or CompactionPolicy()
         self.scorer = scorer or TemporalMemoryScorer()
+        self.llm_provider = llm_provider
 
     def compact(self, memories: list[Memory], *, policy: CompactionPolicy | None = None) -> CompactionDiff:
         """Analyze memories and return an explainable compaction diff."""

@@ -7,6 +7,8 @@ import re
 from datetime import UTC, datetime
 
 from mneno.models import Memory, MemoryPolicy, MemoryScore
+from mneno.providers.embedding import EmbeddingProvider
+from mneno.retrieval.similarity import safe_similarity
 
 TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9]+")
 STOPWORDS = {
@@ -29,21 +31,33 @@ STOPWORDS = {
 class TemporalMemoryScorer:
     """Score memories using recency, importance, access frequency, and keyword overlap."""
 
-    def __init__(self, *, policy: MemoryPolicy | None = None) -> None:
+    def __init__(
+        self, *, policy: MemoryPolicy | None = None, embedding_provider: EmbeddingProvider | None = None
+    ) -> None:
         self.policy = policy or MemoryPolicy()
+        self.embedding_provider = embedding_provider
 
-    def score(self, memory: Memory, *, query: str = "") -> MemoryScore:
+    def score(self, memory: Memory, *, query: str = "", use_semantic: bool = True) -> MemoryScore:
         """Score a memory for a query."""
-        return calculate_memory_score(memory, query=query, policy=self.policy)
+        embedding_provider = self.embedding_provider if use_semantic else None
+        return calculate_memory_score(memory, query=query, policy=self.policy, embedding_provider=embedding_provider)
 
 
-def calculate_memory_score(memory: Memory, *, query: str = "", policy: MemoryPolicy | None = None) -> MemoryScore:
+def calculate_memory_score(
+    memory: Memory,
+    *,
+    query: str = "",
+    policy: MemoryPolicy | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
+) -> MemoryScore:
     """Calculate a bounded, explainable score for a memory."""
     active_policy = policy or MemoryPolicy()
     recency = _recency_score(memory.updated_at, half_life_days=active_policy.recency_half_life_days)
     frequency = min(memory.access_count / 10.0, 1.0)
     freshness = _freshness_score(memory.created_at, decay_days=active_policy.freshness_decay_days)
-    relevance, matched_terms = _keyword_overlap(query, _searchable_text(memory))
+    keyword_relevance, matched_terms = _keyword_overlap(query, _searchable_text(memory))
+    semantic_relevance = _semantic_relevance(query, memory, embedding_provider=embedding_provider)
+    relevance = max(keyword_relevance, semantic_relevance or 0.0)
 
     weighted_total = (
         recency * active_policy.recency_weight
@@ -69,8 +83,15 @@ def calculate_memory_score(memory: Memory, *, query: str = "", policy: MemoryPol
         recency=round(recency, 6),
         frequency=round(frequency, 6),
         freshness=round(freshness, 6),
+        semantic_relevance=round(semantic_relevance, 6) if semantic_relevance is not None else None,
         reasons=_score_reasons(
-            memory, recency=recency, frequency=frequency, freshness=freshness, matched_terms=matched_terms
+            memory,
+            recency=recency,
+            frequency=frequency,
+            freshness=freshness,
+            matched_terms=matched_terms,
+            semantic_relevance=semantic_relevance,
+            embedding_provider_name=embedding_provider.name if embedding_provider is not None else None,
         ),
     )
 
@@ -105,6 +126,19 @@ def _keyword_overlap(query: str, content: str) -> tuple[float, list[str]]:
     return len(matched_terms) / len(query_tokens), matched_terms
 
 
+def _semantic_relevance(
+    query: str,
+    memory: Memory,
+    *,
+    embedding_provider: EmbeddingProvider | None,
+) -> float | None:
+    if embedding_provider is None or not query:
+        return None
+    # TODO: add an embedding cache/index layer before persisting vectors or supporting large memory sets.
+    query_embedding, memory_embedding = embedding_provider.embed([query, memory.content])
+    return safe_similarity(query_embedding, memory_embedding)
+
+
 def _searchable_text(memory: Memory) -> str:
     return " ".join(
         [
@@ -123,8 +157,14 @@ def _score_reasons(
     frequency: float,
     freshness: float,
     matched_terms: list[str],
+    semantic_relevance: float | None,
+    embedding_provider_name: str | None,
 ) -> list[str]:
     reasons = [f"Matched query term: {term}" for term in matched_terms]
+    if semantic_relevance is not None and embedding_provider_name is not None:
+        reasons.append(
+            f"Semantic similarity {semantic_relevance:.2f} from embedding provider '{embedding_provider_name}'"
+        )
     if memory.importance >= 0.75:
         reasons.append("High importance memory")
     elif memory.importance <= 0.25:

@@ -82,6 +82,7 @@ class MemoryScore(BaseModel):
     recency: float = Field(ge=0.0, le=1.0)
     frequency: float = Field(ge=0.0, le=1.0)
     freshness: float = Field(ge=0.0, le=1.0)
+    semantic_relevance: float | None = Field(default=None, ge=0.0, le=1.0)
     reasons: list[str] = Field(default_factory=list)
 
 
@@ -93,6 +94,10 @@ class MemorySearchResult(BaseModel):
     memory: Memory
     score: MemoryScore
     rank: int = Field(gt=0)
+    original_rank: int | None = Field(default=None, gt=0)
+    reranked_rank: int | None = Field(default=None, gt=0)
+    rerank_reason: str | None = Field(default=None, min_length=1)
+    reranker_name: str | None = Field(default=None, min_length=1)
 
 
 class AddMemoryRequest(BaseModel):

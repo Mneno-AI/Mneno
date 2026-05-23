@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from mneno.context.budget import estimate_tokens
 from mneno.context.package import ContextItem, ContextPackage, ContextStats, ExcludedContextItem
 from mneno.context.policies import ContextPolicy
-from mneno.models import Memory, MemoryScore
+from mneno.models import Memory, MemoryScore, MemorySearchResult
+from mneno.providers.reranker import RerankerProvider
+from mneno.retrieval.rerank import RerankingEngine
 from mneno.scoring.temporal import TemporalMemoryScorer
 
 
@@ -16,13 +18,21 @@ class _Candidate:
     memory: Memory
     score: MemoryScore
     estimated_tokens: int
+    rerank_reason: str | None = None
 
 
 class ContextBuilder:
     """Build context packages from scored memories."""
 
-    def __init__(self, *, scorer: TemporalMemoryScorer | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        scorer: TemporalMemoryScorer | None = None,
+        reranker_provider: RerankerProvider | None = None,
+    ) -> None:
         self.scorer = scorer or TemporalMemoryScorer()
+        self.reranker_provider = reranker_provider
+        self.reranking_engine = RerankingEngine(reranker_provider=reranker_provider)
 
     def build(
         self,
@@ -44,6 +54,7 @@ class ContextBuilder:
             for memory in memories
         ]
         sorted_candidates = self._sort_candidates(all_candidates, strategy=policy.strategy)
+        sorted_candidates = self._rerank_candidates(query, sorted_candidates)
         candidates = sorted_candidates[:limit] if limit is not None else sorted_candidates
         excluded = [
             self._exclude(candidate, "Excluded because not selected by policy")
@@ -143,6 +154,8 @@ class ContextBuilder:
         label = preset or policy_name
         if label is not None:
             reason = f"{reason} for context policy '{label}'"
+        if candidate.rerank_reason is not None:
+            reason = f"{reason}; {candidate.rerank_reason}"
         if policy.include_score_reasons and candidate.score.reasons:
             reason = f"{reason}; {candidate.score.reasons[0]}"
         return ContextItem(
@@ -155,6 +168,26 @@ class ContextBuilder:
 
     def _is_preserved(self, memory: Memory, policy: ContextPolicy) -> bool:
         return memory.memory_type in policy.preserve_memory_types or bool(set(memory.tags) & set(policy.preserve_tags))
+
+    def _rerank_candidates(self, query: str, candidates: list[_Candidate]) -> list[_Candidate]:
+        if self.reranker_provider is None or not candidates:
+            return candidates
+
+        results = [
+            MemorySearchResult(memory=candidate.memory, score=candidate.score, rank=index)
+            for index, candidate in enumerate(candidates, start=1)
+        ]
+        reranked = self.reranking_engine.rerank(query, results)
+        by_memory_id = {candidate.memory.id: candidate for candidate in candidates}
+        return [
+            _Candidate(
+                memory=by_memory_id[result.memory.id].memory,
+                score=by_memory_id[result.memory.id].score,
+                estimated_tokens=by_memory_id[result.memory.id].estimated_tokens,
+                rerank_reason=result.rerank_reason,
+            )
+            for result in reranked
+        ]
 
     def _exclude(self, candidate: _Candidate, reason: str) -> ExcludedContextItem:
         return ExcludedContextItem(

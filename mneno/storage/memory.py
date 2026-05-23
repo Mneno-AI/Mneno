@@ -24,7 +24,7 @@ class InMemoryMemoryStore:
     def update(self, memory: Memory) -> Memory:
         if memory.id not in self._memories:
             raise KeyError(f"Memory not found: {memory.id}")
-        self._memories[memory.id] = memory.model_copy(update={"updated_at": utc_now()})
+        self._memories[memory.id] = memory
         return self._memories[memory.id]
 
     def delete(self, memory_id: str) -> bool:
@@ -42,3 +42,6 @@ class InMemoryMemoryStore:
         updated = memory.model_copy(update={"access_count": memory.access_count + 1, "last_accessed_at": now})
         self._memories[memory_id] = updated
         return updated
+
+
+InMemoryStorage = InMemoryMemoryStore
