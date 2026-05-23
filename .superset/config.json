@@ -1,0 +1,4 @@
+{
+  "setup": ["scripts/setup_dev.sh"],
+  "teardown": ["scripts/teardown.sh"]
+}
