@@ -3,7 +3,7 @@ from pathlib import Path
 from pytest import raises
 
 from mneno import MemoryClient
-from mneno.models import Memory, MemoryType, utc_now
+from mneno.models import Memory, MemoryAuditEvent, MemoryLayer, MemoryStatus, MemoryType, utc_now
 from mneno.storage import InMemoryStorage, JSONFileStorage, SQLiteStorage
 
 
@@ -17,6 +17,19 @@ def make_memory() -> Memory:
         last_accessed_at=utc_now(),
         source="unit-test",
         tags=["Python", "Preference"],
+        status=MemoryStatus.CONFLICTED,
+        conflicts_with=["other-memory"],
+        layer=MemoryLayer.WORKING,
+        promotion_count=1,
+        retention_score=0.9,
+        audit=[
+            MemoryAuditEvent(
+                event_type="conflicted",
+                reason="Test conflict",
+                related_memory_ids=["other-memory"],
+                metadata={"conflict_id": "conflict-1"},
+            )
+        ],
     )
 
 
@@ -32,6 +45,14 @@ def assert_memory_preserved(memory: Memory, loaded: Memory) -> None:
     assert loaded.last_accessed_at == memory.last_accessed_at
     assert loaded.source == memory.source
     assert loaded.tags == ["python", "preference"]
+    assert loaded.status is memory.status
+    assert loaded.superseded_by == memory.superseded_by
+    assert loaded.conflicts_with == memory.conflicts_with
+    assert loaded.audit == memory.audit
+    assert loaded.layer is memory.layer
+    assert loaded.promotion_count == memory.promotion_count
+    assert loaded.demotion_count == memory.demotion_count
+    assert loaded.retention_score == memory.retention_score
 
 
 def test_in_memory_storage_alias_still_works() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mneno.hierarchy.layers import LAYER_PRIORITY, LAYER_SCORE_ADJUSTMENT
 from mneno.models import Memory
 from mneno.providers.embedding import EmbeddingProvider
 from mneno.providers.exceptions import ProviderNotFoundError, ProviderValidationError
@@ -46,11 +47,14 @@ class SemanticRetriever:
         scored = [
             (
                 memory,
-                safe_similarity(query_embedding, memory_embedding),
+                _layer_adjusted_similarity(memory, safe_similarity(query_embedding, memory_embedding)),
             )
             for memory, memory_embedding in zip(memories, embeddings[1:], strict=True)
         ]
-        scored.sort(key=lambda item: (item[1], item[0].updated_at, item[0].id), reverse=True)
+        scored.sort(
+            key=lambda item: (item[1], LAYER_PRIORITY[item[0].layer], item[0].updated_at, item[0].id),
+            reverse=True,
+        )
         if top_k is not None:
             scored = scored[:top_k]
         return [
@@ -58,7 +62,14 @@ class SemanticRetriever:
                 memory=memory,
                 similarity=similarity,
                 rank=index,
-                reason=f"Semantic similarity {similarity:.2f} from embedding provider '{self.embedding_provider.name}'",
+                reason=(
+                    f"Semantic similarity {similarity:.2f} from embedding provider '{self.embedding_provider.name}' "
+                    f"with {memory.layer.value} layer influence"
+                ),
             )
             for index, (memory, similarity) in enumerate(scored, start=1)
         ]
+
+
+def _layer_adjusted_similarity(memory: Memory, similarity: float) -> float:
+    return min(max(similarity + LAYER_SCORE_ADJUSTMENT.get(memory.layer, 0.0), 0.0), 1.0)

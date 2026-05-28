@@ -192,6 +192,164 @@ Import modes:
 
 Cloud sync is future work. The current import/export tools are local and deterministic.
 
+## Conflict Detection And Memory Resolution
+
+Mneno detects simple contradictions, duplicates, and superseding facts with deterministic local heuristics. It never
+deletes memories automatically. Resolution updates lifecycle metadata, records audit events, and keeps conflict reports
+explainable.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+
+client.add("User prefers Python 3.10.", memory_type="preference")
+
+result = client.add_with_report(
+    "User now prefers Python 3.11.",
+    memory_type="preference",
+)
+
+for report in result.conflict_reports:
+    print(report.conflict_type, report.reason)
+
+active = client.search("What Python version does the user prefer?")
+```
+
+Memory statuses are `active`, `superseded`, `archived`, and `conflicted`. Superseded and archived memories are excluded
+from default retrieval and context building; pass `include_inactive=True` to inspect them. Audit history preserves why a
+memory changed status, which memory caused the change, and the evidence behind the report.
+
+## Hierarchical Memory Organization
+
+Mneno organizes memories into cognitive layers so short-lived notes, working state, durable knowledge, and operational
+instructions can age and retrieve differently.
+
+Layers:
+
+- `short_term`: transient session memories with low durability.
+- `working`: current task state, immediate goals, and active constraints.
+- `episodic`: session or project history and temporal events.
+- `semantic`: durable factual knowledge and stable user/project information.
+- `operational`: instructions, constraints, system state, and active workflows.
+- `archived`: inactive historical memories, preserved but excluded by default.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+
+client.add(
+    "Current task: build benchmark UI.",
+    memory_type="operational",
+)
+
+client.evaluate_hierarchy()
+
+operational = client.list_by_layer("operational")
+```
+
+Retrieval is lifecycle-aware: operational, working, and semantic memories receive priority; archived and superseded
+memories are excluded unless you pass `include_archived=True` or `include_inactive=True`. Frequently useful memories can
+be promoted, stale temporary memories can be archived, and every transition is recorded in audit history. Mneno archives
+instead of silently deleting.
+
+## Sessions And Timelines
+
+Sessions group memories into temporal units so long-running applications can reconstruct what happened in one session
+or across multiple sessions. A memory belongs to one primary session for now; richer graph-style linking is future work.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+
+session = client.create_session(
+    title="Mneno benchmark platform work",
+)
+
+client.add(
+    "Implemented Step 14 timeline support.",
+    session_id=session.id,
+)
+
+timeline = client.build_timeline(
+    session_ids=[session.id],
+)
+
+for event in timeline.events:
+    print(event.content)
+```
+
+Session-aware retrieval boosts the active session so current work stays visible. Use `get_session_context()` to build
+context for one session, `find_related_sessions()` to recover continuity across related sessions, and
+`build_timeline()` to reconstruct deterministic event order from timestamps and per-session sequence indexes. Sessions,
+timeline metadata, and memory session links are preserved by JSON storage, SQLite storage, import/export, backup, and
+restore.
+
+## Observability And Tracing
+
+Mneno includes optional local tracing for debugging retrieval, context building, compaction, hierarchy transitions,
+conflicts, extraction, sessions, and timelines. Tracing is disabled by default, uses only in-memory storage, and does not
+send events to external services.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient(trace_enabled=True)
+
+client.add("User prefers Python.")
+client.search("Python")
+
+trace = client.get_trace(client.last_trace_id)
+
+for event in trace.events:
+    print(event.operation, event.message)
+```
+
+Use `client.list_traces()` and `client.clear_traces()` to inspect or reset local traces. `TraceInspector` can summarize
+traces, filter events by memory or event type, explain a memory decision, and export a trace as JSON. Traces are intended
+for developer debugging and avoid external tracing dependencies.
+
+## Evaluation And Benchmark Integration
+
+Mneno exposes local evaluation hooks for future Mneno Bench adapters. The SDK does not include benchmark datasets,
+online telemetry, or external evaluation dependencies; it provides stable report models, deterministic structural
+metrics, trace export, and benchmark payload helpers.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient(trace_enabled=True)
+
+client.add("The user is building Mneno.", importance=0.9)
+
+report = client.evaluate_context(
+    query="What is the user building?",
+)
+
+print(report.metrics)
+```
+
+Evaluation helpers cover retrieval precision/recall/MRR, token efficiency, compaction reduction, structural retention,
+latency, scanned/selected memory counts, and trace event counts. Use `evaluate_search()`, `evaluate_context()`, and
+`evaluate_compaction()` to create serializable operation reports. Use `export_benchmark_result()` to produce the stable
+Mneno Bench payload:
+
+```json
+{
+  "format": "mneno.benchmark.result",
+  "version": 1,
+  "benchmark": "synthetic",
+  "metrics": [],
+  "traces": [],
+  "metadata": {}
+}
+```
+
+External LOCOMO, LongMemEval, BEAM, or Mneno Bench adapters can implement `BenchmarkAdapter` without changing core SDK
+behavior.
+
 ## Provider Architecture
 
 Mneno is provider-agnostic. The core runtime remains deterministic and local by default, while Phase 2 introduces
@@ -287,6 +445,48 @@ for result in results:
 
 Use `use_reranker=False` to skip reranking even when a provider is configured. If `use_reranker=True` is passed without
 a provider, Mneno raises a clear provider error.
+
+## Memory Extraction
+
+Mneno can extract structured memories from raw text. The default extractor is deterministic and local: it uses simple
+heuristics to identify durable facts, preferences, goals, constraints, and project information.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+
+result = client.extract_memories(
+    "The user is building Mneno. They prefer Python 3.11."
+)
+
+for memory in result.extracted:
+    print(memory.content, memory.memory_type, memory.reason)
+
+client.add_from_text(
+    "The user is building Mneno. They prefer Python 3.11."
+)
+```
+
+## LLM-Assisted Extraction
+
+LLM usage is optional. Mneno core does not include real provider dependencies; future adapters can implement
+`LLMProvider` to connect any model. Deterministic extraction remains the fallback.
+
+```python
+from mneno import MemoryClient
+from mneno.providers.llm import DummyLLMProvider
+
+client = MemoryClient(llm_provider=DummyLLMProvider())
+
+result = client.extract_memories(
+    "The user is building Mneno. They prefer Python 3.11.",
+    use_llm=True,
+)
+```
+
+LLM-assisted compaction is intentionally limited: deterministic policy still decides what to keep, merge, or discard.
+The LLM may only improve merged memory wording for groups already selected by the deterministic engine.
 
 ## Roadmap
 

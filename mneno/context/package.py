@@ -66,3 +66,4 @@ class ContextPackage(BaseModel):
     included: list[ContextItem] = Field(default_factory=list)
     excluded: list[ExcludedContextItem] = Field(default_factory=list)
     stats: ContextStats
+    trace_id: str | None = None

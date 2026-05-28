@@ -5,7 +5,7 @@ from pytest import MonkeyPatch, raises
 
 from mneno import MemoryClient
 from mneno.io import ImportResult, validate_export_payload, validate_storage_payload
-from mneno.models import Memory, MemoryType, utc_now
+from mneno.models import Memory, MemoryAuditEvent, MemoryLayer, MemoryStatus, MemoryType, utc_now
 from mneno.storage import JSONFileStorage, SQLiteStorage
 
 
@@ -19,6 +19,19 @@ def make_memory() -> Memory:
         last_accessed_at=utc_now(),
         source="test",
         tags=["python", "preference"],
+        status=MemoryStatus.CONFLICTED,
+        conflicts_with=["other-memory"],
+        layer=MemoryLayer.WORKING,
+        promotion_count=1,
+        retention_score=0.9,
+        audit=[
+            MemoryAuditEvent(
+                event_type="conflicted",
+                reason="Test conflict",
+                related_memory_ids=["other-memory"],
+                metadata={"conflict_id": "conflict-1"},
+            )
+        ],
     )
 
 
@@ -42,6 +55,14 @@ def assert_memory_preserved(expected: Memory, actual: Memory) -> None:
     assert actual.last_accessed_at == expected.last_accessed_at
     assert actual.source == expected.source
     assert actual.tags == expected.tags
+    assert actual.status is expected.status
+    assert actual.superseded_by == expected.superseded_by
+    assert actual.conflicts_with == expected.conflicts_with
+    assert actual.audit == expected.audit
+    assert actual.layer is expected.layer
+    assert actual.promotion_count == expected.promotion_count
+    assert actual.demotion_count == expected.demotion_count
+    assert actual.retention_score == expected.retention_score
 
 
 def test_import_result_is_public() -> None:

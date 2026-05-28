@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from mneno.context.budget import estimate_tokens
 from mneno.context.package import ContextItem, ContextPackage, ContextStats, ExcludedContextItem
 from mneno.context.policies import ContextPolicy
+from mneno.hierarchy.layers import LAYER_PRIORITY, MemoryLayer
 from mneno.models import Memory, MemoryScore, MemorySearchResult
 from mneno.providers.reranker import RerankerProvider
 from mneno.retrieval.rerank import RerankingEngine
@@ -43,12 +44,17 @@ class ContextBuilder:
         policy_name: str | None = None,
         preset: str | None = None,
         limit: int | None = None,
+        active_session_id: str | None = None,
     ) -> ContextPackage:
         """Build an explainable context package from candidate memories."""
         all_candidates = [
             _Candidate(
                 memory=memory,
-                score=self.scorer.score(memory, query=query),
+                score=_session_adjusted_score(
+                    self.scorer.score(memory, query=query),
+                    memory=memory,
+                    active_session_id=active_session_id,
+                ),
                 estimated_tokens=estimate_tokens(memory.content),
             )
             for memory in memories
@@ -126,14 +132,35 @@ class ContextBuilder:
     def _sort_candidates(self, candidates: list[_Candidate], *, strategy: str) -> list[_Candidate]:
         if strategy == "recency":
             return sorted(
-                candidates, key=lambda item: (item.memory.updated_at, item.score.total, item.memory.id), reverse=True
+                candidates,
+                key=lambda item: (
+                    item.memory.updated_at,
+                    LAYER_PRIORITY[item.memory.layer],
+                    item.score.total,
+                    item.memory.id,
+                ),
+                reverse=True,
             )
         if strategy == "importance":
             return sorted(
-                candidates, key=lambda item: (item.memory.importance, item.score.total, item.memory.id), reverse=True
+                candidates,
+                key=lambda item: (
+                    item.memory.importance,
+                    LAYER_PRIORITY[item.memory.layer],
+                    item.score.total,
+                    item.memory.id,
+                ),
+                reverse=True,
             )
         return sorted(
-            candidates, key=lambda item: (item.score.total, item.memory.updated_at, item.memory.id), reverse=True
+            candidates,
+            key=lambda item: (
+                item.score.total,
+                LAYER_PRIORITY[item.memory.layer],
+                item.memory.updated_at,
+                item.memory.id,
+            ),
+            reverse=True,
         )
 
     def _include(
@@ -145,10 +172,13 @@ class ContextBuilder:
         preset: str | None,
     ) -> ContextItem:
         preserved_tags = sorted(set(candidate.memory.tags) & set(policy.preserve_tags))
+        layer_reason = _included_layer_reason(candidate.memory.layer)
         if candidate.memory.memory_type in policy.preserve_memory_types:
             reason = f"Included because preserved memory type '{candidate.memory.memory_type.value}' fits within budget"
         elif preserved_tags:
             reason = f"Included because preserved tag '{preserved_tags[0]}' fits within budget"
+        elif layer_reason is not None:
+            reason = layer_reason
         else:
             reason = "Included because highest score within budget"
         label = preset or policy_name
@@ -156,6 +186,9 @@ class ContextBuilder:
             reason = f"{reason} for context policy '{label}'"
         if candidate.rerank_reason is not None:
             reason = f"{reason}; {candidate.rerank_reason}"
+        session_reasons = [score_reason for score_reason in candidate.score.reasons if "active session" in score_reason]
+        if session_reasons:
+            reason = f"{reason}; {session_reasons[0]}"
         if policy.include_score_reasons and candidate.score.reasons:
             reason = f"{reason}; {candidate.score.reasons[0]}"
         return ContextItem(
@@ -209,3 +242,27 @@ def _format_context_text(included: list[ContextItem]) -> str:
 
 def _normalize_content(content: str) -> str:
     return " ".join(content.lower().split())
+
+
+def _included_layer_reason(layer: MemoryLayer) -> str | None:
+    if layer is MemoryLayer.OPERATIONAL:
+        return "Included because operational layer has high retrieval priority"
+    if layer is MemoryLayer.WORKING:
+        return "Included because working layer has high retrieval priority"
+    return None
+
+
+def _session_adjusted_score(
+    score: MemoryScore,
+    *,
+    memory: Memory,
+    active_session_id: str | None,
+) -> MemoryScore:
+    if active_session_id is None or memory.session_id != active_session_id:
+        return score
+    return score.model_copy(
+        update={
+            "total": min(score.total + 0.1, 1.0),
+            "reasons": [*score.reasons, "Included because memory belongs to active session"],
+        }
+    )

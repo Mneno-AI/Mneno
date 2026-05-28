@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
 from mneno.compaction.policies import CompactionPolicy
+from mneno.extraction.prompts import build_compaction_merge_prompt
+from mneno.hierarchy.layers import LAYER_PRIORITY, MemoryLayer
 from mneno.models import (
     CompactionDecision,
     CompactionDecisionType,
@@ -40,7 +43,13 @@ class CompactionEngine:
         self.scorer = scorer or TemporalMemoryScorer()
         self.llm_provider = llm_provider
 
-    def compact(self, memories: list[Memory], *, policy: CompactionPolicy | None = None) -> CompactionDiff:
+    def compact(
+        self,
+        memories: list[Memory],
+        *,
+        policy: CompactionPolicy | None = None,
+        use_llm: bool = False,
+    ) -> CompactionDiff:
         """Analyze memories and return an explainable compaction diff."""
         active_policy = policy or self.policy
         scores = {memory.id: self.scorer.score(memory) for memory in memories}
@@ -53,7 +62,7 @@ class CompactionEngine:
         created: list[Memory] = []
 
         for group in merged_groups:
-            consolidated = self._merge_group(group)
+            consolidated = self._merge_group(group, use_llm=use_llm)
             created.append(consolidated)
             related_ids = [memory.id for memory in group]
             reason = f"Merged with {len(group) - 1} similar memories based on token overlap"
@@ -146,14 +155,17 @@ class CompactionEngine:
         overlap = len(first_tokens & second_tokens) / len(first_tokens | second_tokens)
         return overlap >= NEAR_DUPLICATE_THRESHOLD
 
-    def _merge_group(self, group: list[Memory]) -> Memory:
+    def _merge_group(self, group: list[Memory], *, use_llm: bool = False) -> Memory:
         best = max(group, key=lambda memory: (memory.importance, len(memory.content), memory.updated_at))
         metadata = _merge_metadata(group)
         metadata["source_memory_ids"] = [memory.id for memory in group]
+        metadata["source_layers"] = sorted({memory.layer.value for memory in group})
         memory_type = _merged_memory_type(group)
+        content = self._llm_merge_content(group) if use_llm and self.llm_provider is not None else None
         return Memory(
-            content=f"Merged memory: {best.content}",
+            content=content or f"Merged memory: {best.content}",
             memory_type=memory_type,
+            layer=_merged_layer(group),
             metadata=metadata,
             created_at=min(memory.created_at for memory in group),
             updated_at=utc_now(),
@@ -163,6 +175,20 @@ class CompactionEngine:
             source="compaction",
             tags=sorted({tag for memory in group for tag in memory.tags}),
         )
+
+    def _llm_merge_content(self, group: list[Memory]) -> str | None:
+        if self.llm_provider is None:
+            return None
+        prompt = build_compaction_merge_prompt([memory.content for memory in group])
+        raw = self.llm_provider.generate(prompt, temperature=0.0)
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        content = payload.get("content")
+        return content if isinstance(content, str) and content.strip() else None
 
     def _keep_reason(self, memory: Memory, score: MemoryScore, policy: CompactionPolicy) -> str | None:
         if memory.memory_type in policy.preserve_memory_types:
@@ -333,6 +359,12 @@ def _merged_memory_type(group: list[Memory]) -> MemoryType:
         if memory_type in group_types:
             return memory_type
     return group[0].memory_type
+
+
+def _merged_layer(group: list[Memory]) -> MemoryLayer:
+    active_layers: list[MemoryLayer] = [memory.layer for memory in group if memory.layer is not MemoryLayer.ARCHIVED]
+    candidates = active_layers or [memory.layer for memory in group]
+    return max(candidates, key=lambda layer: LAYER_PRIORITY[layer])
 
 
 def _max_optional_datetime(values: Iterable[datetime | None]) -> datetime | None:

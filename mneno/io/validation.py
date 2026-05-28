@@ -19,6 +19,8 @@ def validate_storage_payload(payload: dict[str, Any]) -> None:
         raise ValueError("Invalid storage payload: missing memories")
     if not isinstance(payload["memories"], list):
         raise ValueError("Invalid storage payload: memories must be a list")
+    if "sessions" in payload and not isinstance(payload["sessions"], list):
+        raise ValueError("Invalid storage payload: sessions must be a list")
 
 
 def validate_export_payload(payload: dict[str, Any]) -> None:
@@ -33,3 +35,5 @@ def validate_export_payload(payload: dict[str, Any]) -> None:
         raise ValueError("Invalid export payload: missing memories")
     if not isinstance(payload["memories"], list):
         raise ValueError("Invalid export payload: memories must be a list")
+    if "sessions" in payload and not isinstance(payload["sessions"], list):
+        raise ValueError("Invalid export payload: sessions must be a list")

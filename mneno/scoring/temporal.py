@@ -6,6 +6,7 @@ import math
 import re
 from datetime import UTC, datetime
 
+from mneno.hierarchy.layers import LAYER_SCORE_ADJUSTMENT, MemoryLayer
 from mneno.models import Memory, MemoryPolicy, MemoryScore
 from mneno.providers.embedding import EmbeddingProvider
 from mneno.retrieval.similarity import safe_similarity
@@ -74,6 +75,7 @@ def calculate_memory_score(
         + active_policy.freshness_weight
     )
     total = weighted_total / total_weight if total_weight > 0 else 0.0
+    total = min(max(total + LAYER_SCORE_ADJUSTMENT.get(memory.layer, 0.0), 0.0), 1.0)
 
     return MemoryScore(
         memory_id=memory.id,
@@ -144,6 +146,7 @@ def _searchable_text(memory: Memory) -> str:
         [
             memory.content,
             memory.memory_type.value,
+            memory.layer.value,
             memory.source or "",
             " ".join(memory.tags),
         ]
@@ -161,6 +164,9 @@ def _score_reasons(
     embedding_provider_name: str | None,
 ) -> list[str]:
     reasons = [f"Matched query term: {term}" for term in matched_terms]
+    layer_reason = _layer_reason(memory.layer)
+    if layer_reason is not None:
+        reasons.append(layer_reason)
     if semantic_relevance is not None and embedding_provider_name is not None:
         reasons.append(
             f"Semantic similarity {semantic_relevance:.2f} from embedding provider '{embedding_provider_name}'"
@@ -180,6 +186,20 @@ def _score_reasons(
     if not reasons:
         reasons.append("Baseline score from importance, recency, freshness, and access signals")
     return reasons
+
+
+def _layer_reason(layer: MemoryLayer) -> str | None:
+    if layer is MemoryLayer.OPERATIONAL:
+        return "Operational layer retrieval boost applied"
+    if layer is MemoryLayer.WORKING:
+        return "Working layer retrieval boost applied"
+    if layer is MemoryLayer.SEMANTIC:
+        return "Semantic layer retrieval boost applied"
+    if layer is MemoryLayer.ARCHIVED:
+        return "Archived layer retrieval penalty applied"
+    if layer is MemoryLayer.SHORT_TERM:
+        return "Short-term layer retrieval penalty applied"
+    return None
 
 
 def _tokens(text: str) -> list[str]:

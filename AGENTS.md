@@ -13,6 +13,10 @@ and should not become a thin wrapper around provider APIs.
 - `mneno/`: core Python package.
 - `mneno/scoring/`: memory scoring interfaces and temporal scoring.
 - `mneno/compaction/`: explainable compaction interfaces and diff templates.
+- `mneno/conflicts/`: deterministic conflict detection, reports, and safe resolution policies.
+- `mneno/hierarchy/`: memory layer definitions, retention policies, and lifecycle transition management.
+- `mneno/observability/`: local trace models, in-memory recorder, and inspector utilities.
+- `mneno/evaluation/`: deterministic metrics, benchmark adapters, operation reports, and stable export helpers.
 - `mneno/retrieval/`: retrieval interfaces.
 - `mneno/storage/`: storage interfaces and local in-memory storage.
 - `mneno/providers/`: provider protocols, dummy local providers, and provider registry.
@@ -117,6 +121,151 @@ Reranking rules:
 Do not add Cohere, Jina, HuggingFace, OpenAI, or other reranker dependencies to core. Real rerankers belong in optional
 provider packages or extras.
 
+## Extraction Architecture
+
+Mneno supports deterministic and optional LLM-assisted memory extraction.
+
+Extraction rules:
+
+- Deterministic extraction is the default fallback and must not require provider configuration.
+- LLM-assisted extraction must use the `LLMProvider` interface only.
+- No real LLM dependencies or network calls belong in core.
+- All LLM outputs must be parsed as structured data and validated with Pydantic models.
+- Invalid LLM output must produce explicit errors; do not silently treat it as successful extraction.
+- `add_from_text` may add valid extracted memories even when other extracted items fail validation.
+
+LLM-assisted compaction rules:
+
+- LLMs must not decide destructive memory deletion.
+- Deterministic compaction policy decides keep, merge, and discard decisions.
+- LLMs may only improve merged memory wording for groups already selected by deterministic merge logic.
+- If LLM merge output is invalid, fall back to deterministic merged content or report the issue clearly.
+- Compaction diffs must remain explainable.
+
+## Conflict Detection And Memory Lifecycle
+
+Mneno memories have lifecycle statuses:
+
+- `active`: normal retrieval candidate.
+- `superseded`: retained for audit/history but replaced by a newer memory.
+- `archived`: retained but excluded from default retrieval.
+- `conflicted`: retained with explicit conflict links and audit history.
+
+Conflict detection philosophy:
+
+- Conflict detection must be deterministic, local-only, and explainable by default.
+- Reports must include a clear reason, evidence, severity, type, and suggested action.
+- Prefer conservative heuristics over opaque inference.
+- Optional LLM hooks may be prepared through provider interfaces, but LLMs must not be required for conflict detection
+  or memory resolution.
+- No real provider dependencies, network calls, vector databases, graph databases, or heavyweight NLP dependencies
+  belong in core conflict detection.
+
+Safe resolution behavior:
+
+- Never delete memories automatically.
+- Preserve audit history when marking memories as superseded, archived, or conflicted.
+- Superseding a memory should set `superseded_by` and add audit events to both the old and new memory.
+- Contradictions should link memories with `conflicts_with` and add audit events.
+- Duplicate handling may archive only when policy explicitly allows it; default behavior is report/audit only.
+- Old memory payloads without status, conflict links, or audit events must keep loading with safe defaults.
+- Search and context building should prefer active memories by default and exclude archived or superseded memories unless
+  an explicit inactive-inclusion option is used.
+
+## Hierarchical Memory Organization
+
+Mneno organizes memories into lifecycle-aware layers:
+
+- `short_term`: transient session memories, low durability, likely to be archived or compacted quickly.
+- `working`: current active task state, goals, constraints, and immediate reasoning context.
+- `episodic`: session/project history, interactions, and temporal events.
+- `semantic`: durable facts, preferences, and stable user/project knowledge.
+- `operational`: instructions, constraints, system state, and active workflows.
+- `archived`: inactive historical memories retained for audit and normally excluded from retrieval.
+
+Hierarchy philosophy:
+
+- Layer behavior must be deterministic and local-first.
+- Promotion, demotion, and archival must be explainable and auditable.
+- Retention should use transparent signals: importance, access count, recency, memory type, status, and current layer.
+- Archival is preferred over deletion. Do not silently delete memories during hierarchy evaluation.
+- Operational memories should be preserved unless an explicit policy says they are stale.
+- Frequently useful short-term memories may be promoted to episodic; high-retention episodic memories may be promoted to
+  semantic.
+- Stale working memories may demote to episodic; stale or low-retention temporary memories may archive.
+
+Lifecycle-aware retrieval:
+
+- Default retrieval and context building should prioritize `operational`, `working`, and `semantic` memories.
+- `archived` and `superseded` memories should be excluded by default and only included through explicit options.
+- Search and context explanations should mention meaningful layer influence when it affects inclusion or ranking.
+- Layer metadata and transition audit history must remain compatible with JSON, SQLite, import/export, backup, and
+  restore.
+
+## Sessions And Timeline Support
+
+Sessions are lightweight temporal groupings for memories:
+
+- A memory has one primary `session_id` for now.
+- `sequence_index` orders memories within a session.
+- Sessions have active, closed, and archived statuses.
+- Sessions organize continuity; they are not graph memory. Future graph memory should remain a separate design.
+
+Session philosophy:
+
+- Session support must be deterministic, local-first, and lightweight.
+- Sessions should preserve temporal order and help reconstruct what happened across time.
+- Session summaries should be deterministic unless an explicit provider-backed summarizer is added later.
+- Closing or archiving a session must not delete memories.
+- Import/export, backup/restore, JSON storage, and SQLite storage must preserve sessions and memory session metadata.
+
+Timeline reconstruction:
+
+- Timelines should sort deterministically by timestamp, session id, sequence index, and memory id.
+- Timeline events must explain ordering decisions.
+- Timelines should support one session or multiple sessions without external services.
+
+Continuity behavior:
+
+- Related sessions should be found with deterministic local relevance signals such as token overlap.
+- Archived sessions should not be treated as active continuity sources by default.
+- Session-aware retrieval/context may boost current-session memories and explain that boost.
+- Context building should mention session continuity when active-session membership affects inclusion.
+
+## Observability And Tracing
+
+Mneno observability is local, optional, and deterministic.
+
+Rules:
+
+- Tracing must be disabled by default.
+- Core tracing must not use external services, OpenTelemetry, network calls, or heavyweight dependencies.
+- Traces should stay in memory unless an explicit future storage/export design is added.
+- Every complex decision should be traceable when tracing is enabled: scoring, retrieval filtering, semantic usage,
+  reranking, context inclusion/exclusion, compaction decisions, hierarchy transitions, conflict reports/resolution,
+  extraction, session actions, and timeline ordering.
+- Trace messages and data must be explainable and stable enough for tests.
+- Do not put API keys, secrets, credentials, or raw provider payloads in trace data by default.
+- Prefer structured event data over opaque text blobs.
+- Tracing must remain backward compatible with existing public return types.
+
+## Evaluation And Benchmark Integration
+
+Mneno Bench support is local-first benchmark plumbing, not bundled benchmark data.
+
+Rules:
+
+- Evaluation must be deterministic and structural unless a future explicit evaluator provider is introduced.
+- Do not add external benchmark dependencies, online telemetry, uploads, network calls, or hosted services to core.
+- Export schemas must be stable and versioned.
+- Operation evaluation reports should be serializable and include metrics, operation metadata, timing, counts, and trace
+  references where available.
+- Metrics should remain simple and explainable: precision@k, recall@k, MRR, token efficiency, reduction ratio, latency,
+  scanned/selected counts, and trace event counts.
+- Benchmark adapters should use the `BenchmarkAdapter` protocol so LOCOMO, LongMemEval, BEAM, and Mneno Bench
+  integrations can live outside core.
+- Trace export for benchmarks must remain local and must not include secrets or raw provider payloads by default.
+
 ## Import Patterns
 
 - Prefer imports from stable package modules such as `mneno.models`, `mneno.storage`, and `mneno.scoring`.
@@ -180,6 +329,8 @@ vector databases, graph databases, and persistence backends.
 - Do not persist embeddings in storage until a versioned embedding cache/index design exists.
 - Do not create vendor-specific abstractions in core.
 - Do not make providers mandatory for local memory, compaction, retrieval, or context building.
+- Do not let LLMs make destructive memory lifecycle decisions.
+- Do not accept unvalidated LLM structured output.
 - Do not introduce complex graph logic in the MVP.
 - Do not make compaction behavior opaque.
 - Do not add public APIs without documentation and tests.

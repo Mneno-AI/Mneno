@@ -231,6 +231,16 @@ def test_budget_int_remains_backward_compatible() -> None:
     assert context.stats.reserve_tokens == 0
 
 
+def test_preset_none_uses_balanced_fallback() -> None:
+    client = MemoryClient()
+    client.add("User is building Mneno.", importance=0.9)
+
+    context = client.build_context("Mneno", preset=None)
+
+    assert context.policy_name == "balanced"
+    assert context.preset == "balanced"
+
+
 def test_context_budget_remains_backward_compatible() -> None:
     client = MemoryClient()
     client.add("User is building Mneno.", importance=0.9)

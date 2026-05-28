@@ -6,10 +6,14 @@ from mneno.models import (
     CompactionDecisionType,
     CompactionDiff,
     Memory,
+    MemoryAuditEvent,
+    MemoryLayer,
     MemoryPolicy,
     MemoryScore,
     MemorySearchResult,
+    MemoryStatus,
     MemoryType,
+    utc_now,
 )
 
 
@@ -24,6 +28,81 @@ def test_memory_defaults() -> None:
     assert memory.last_accessed_at is None
     assert memory.source is None
     assert memory.tags == []
+    assert memory.status is MemoryStatus.ACTIVE
+    assert memory.superseded_by is None
+    assert memory.conflicts_with == []
+    assert memory.audit == []
+    assert memory.layer is MemoryLayer.SEMANTIC
+    assert memory.promotion_count == 0
+    assert memory.demotion_count == 0
+    assert memory.last_promoted_at is None
+    assert memory.last_demoted_at is None
+    assert memory.retention_score is None
+    assert memory.session_id is None
+    assert memory.sequence_index is None
+
+
+def test_memory_default_layer_assignment_by_type() -> None:
+    assert Memory(content="Current task.", memory_type="operational").layer is MemoryLayer.OPERATIONAL
+    assert Memory(content="User prefers Python.", memory_type="preference").layer is MemoryLayer.SEMANTIC
+    assert Memory(content="Stable fact.", memory_type="semantic").layer is MemoryLayer.SEMANTIC
+    assert Memory(content="Session event.", memory_type="episodic").layer is MemoryLayer.EPISODIC
+
+
+def test_old_style_memory_payload_loads_with_lifecycle_defaults() -> None:
+    memory = Memory.model_validate({"content": "Old serialized memory."})
+
+    assert memory.status is MemoryStatus.ACTIVE
+    assert memory.superseded_by is None
+    assert memory.conflicts_with == []
+    assert memory.audit == []
+    assert memory.layer is MemoryLayer.SEMANTIC
+    assert memory.session_id is None
+    assert memory.sequence_index is None
+
+
+def test_memory_audit_event_serializes_and_deserializes() -> None:
+    event = MemoryAuditEvent(
+        event_type="superseded",
+        timestamp=utc_now(),
+        reason="Updated preference",
+        related_memory_ids=["new"],
+        metadata={"conflict_id": "conflict-1"},
+    )
+    memory = Memory(content="User prefers Python 3.10.", audit=[event], status=MemoryStatus.SUPERSEDED)
+    loaded = Memory.model_validate(memory.model_dump(mode="json"))
+
+    assert loaded.status is MemoryStatus.SUPERSEDED
+    assert loaded.audit[0].event_type == "superseded"
+    assert loaded.audit[0].metadata == {"conflict_id": "conflict-1"}
+
+
+def test_memory_hierarchy_metadata_serializes_and_deserializes() -> None:
+    memory = Memory(
+        content="Current working state.",
+        layer=MemoryLayer.WORKING,
+        promotion_count=1,
+        demotion_count=2,
+        last_promoted_at=utc_now(),
+        last_demoted_at=utc_now(),
+        retention_score=0.8,
+    )
+    loaded = Memory.model_validate(memory.model_dump(mode="json"))
+
+    assert loaded.layer is MemoryLayer.WORKING
+    assert loaded.promotion_count == 1
+    assert loaded.demotion_count == 2
+    assert loaded.last_promoted_at == memory.last_promoted_at
+    assert loaded.last_demoted_at == memory.last_demoted_at
+    assert loaded.retention_score == 0.8
+
+
+def test_memory_session_metadata_serializes_and_deserializes() -> None:
+    memory = Memory(content="Session memory.", session_id="session-1", sequence_index=3)
+    loaded = Memory.model_validate(memory.model_dump(mode="json"))
+
+    assert loaded.session_id == "session-1"
+    assert loaded.sequence_index == 3
 
 
 def test_memory_accepts_structured_fields() -> None:

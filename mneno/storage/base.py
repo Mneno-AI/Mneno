@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import builtins
 from typing import Protocol
 
 from mneno.models import Memory
+from mneno.sessions.models import Session
 
 
 class MemoryStore(Protocol):
@@ -27,3 +29,18 @@ class MemoryStore(Protocol):
 
     def clear(self) -> None:
         """Delete all memories."""
+
+    def add_session(self, session: Session) -> Session:
+        """Persist a session."""
+
+    def get_session(self, session_id: str) -> Session | None:
+        """Return a session by ID."""
+
+    def list_sessions(self) -> builtins.list[Session]:
+        """Return all sessions."""
+
+    def update_session(self, session: Session) -> Session:
+        """Replace an existing session."""
+
+    def delete_session(self, session_id: str) -> bool:
+        """Delete a session by ID."""

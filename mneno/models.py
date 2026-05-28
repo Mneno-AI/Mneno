@@ -7,7 +7,9 @@ from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from mneno.hierarchy.layers import MemoryLayer, infer_layer
 
 
 def utc_now() -> datetime:
@@ -38,6 +40,27 @@ class MemoryType(StrEnum):
     PREFERENCE = "preference"
 
 
+class MemoryStatus(StrEnum):
+    """Lifecycle status for a stored memory."""
+
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    ARCHIVED = "archived"
+    CONFLICTED = "conflicted"
+
+
+class MemoryAuditEvent(BaseModel):
+    """Audit event explaining a memory lifecycle change."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_type: str = Field(min_length=1)
+    timestamp: datetime = Field(default_factory=utc_now)
+    reason: str = Field(min_length=1)
+    related_memory_ids: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class CompactionDecisionType(StrEnum):
     """Possible outcomes for a memory during compaction."""
 
@@ -62,6 +85,31 @@ class Memory(BaseModel):
     last_accessed_at: datetime | None = None
     source: str | None = Field(default=None, min_length=1)
     tags: list[str] = Field(default_factory=list)
+    status: MemoryStatus = MemoryStatus.ACTIVE
+    superseded_by: str | None = None
+    conflicts_with: list[str] = Field(default_factory=list)
+    audit: list[MemoryAuditEvent] = Field(default_factory=list)
+    layer: MemoryLayer = MemoryLayer.SEMANTIC
+    promotion_count: int = Field(default=0, ge=0)
+    demotion_count: int = Field(default=0, ge=0)
+    last_promoted_at: datetime | None = None
+    last_demoted_at: datetime | None = None
+    retention_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    session_id: str | None = None
+    sequence_index: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_default_layer(cls, data: object) -> object:
+        """Infer a layer for old payloads and new model construction."""
+        if not isinstance(data, dict) or data.get("layer") is not None:
+            return data
+        if data.get("status") == MemoryStatus.ARCHIVED.value:
+            data = {**data, "layer": MemoryLayer.ARCHIVED}
+            return data
+        memory_type = data.get("memory_type", MemoryType.SEMANTIC)
+        data = {**data, "layer": infer_layer(memory_type)}
+        return data
 
     @field_validator("tags")
     @classmethod
@@ -165,6 +213,7 @@ class CompactionDiff(BaseModel):
     discarded: list[CompactionDecision] = Field(default_factory=list)
     created: list[Memory] = Field(default_factory=list)
     summary: str = ""
+    trace_id: str | None = None
     stats: CompactionStats = Field(
         default_factory=lambda: CompactionStats(
             before_count=0,

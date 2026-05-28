@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from mneno.io.validation import validate_export_payload
 from mneno.models import Memory
+from mneno.sessions.models import Session
 from mneno.storage.base import MemoryStore
 
 ImportMode = Literal["append", "replace", "skip_existing", "overwrite"]
@@ -24,6 +25,9 @@ class ImportResult(BaseModel):
     imported_count: int = Field(default=0, ge=0)
     skipped_count: int = Field(default=0, ge=0)
     overwritten_count: int = Field(default=0, ge=0)
+    imported_session_count: int = Field(default=0, ge=0)
+    skipped_session_count: int = Field(default=0, ge=0)
+    overwritten_session_count: int = Field(default=0, ge=0)
     failed_count: int = Field(default=0, ge=0)
     errors: list[str] = Field(default_factory=list)
 
@@ -70,6 +74,20 @@ def import_memories_from_payload(
         except (KeyError, ValueError) as exc:
             result.failed_count += 1
             result.errors.append(f"Memory at index {index} failed import: {exc}")
+
+    sessions = payload.get("sessions", [])
+    if not isinstance(sessions, list):
+        raise ValueError("Invalid export payload: sessions must be a list")
+    for index, raw_session in enumerate(sessions):
+        try:
+            session = Session.model_validate(raw_session)
+            _import_session(storage, session, mode=mode, result=result)
+        except ValidationError as exc:
+            result.failed_count += 1
+            result.errors.append(f"Session at index {index} failed validation: {exc}")
+        except (KeyError, ValueError) as exc:
+            result.failed_count += 1
+            result.errors.append(f"Session at index {index} failed import: {exc}")
     return result
 
 
@@ -100,4 +118,29 @@ def _copy_with_new_id(storage: MemoryStore, memory: Memory) -> Memory:
     copied = memory
     while storage.get(copied.id) is not None:
         copied = memory.model_copy(update={"id": str(uuid4())})
+    return copied
+
+
+def _import_session(storage: MemoryStore, session: Session, *, mode: ImportMode, result: ImportResult) -> None:
+    existing = storage.get_session(session.id)
+    if mode == "skip_existing" and existing is not None:
+        result.skipped_session_count += 1
+        return
+
+    if mode == "overwrite" and existing is not None:
+        storage.update_session(session)
+        result.overwritten_session_count += 1
+        return
+
+    if mode == "append" and existing is not None:
+        session = _copy_session_with_new_id(storage, session)
+
+    storage.add_session(session)
+    result.imported_session_count += 1
+
+
+def _copy_session_with_new_id(storage: MemoryStore, session: Session) -> Session:
+    copied = session
+    while storage.get_session(copied.id) is not None:
+        copied = session.model_copy(update={"id": str(uuid4())})
     return copied
