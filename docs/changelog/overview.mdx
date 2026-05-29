@@ -1,0 +1,33 @@
+---
+title: "Changelog"
+description: "Updates and improvements to Mneno."
+---
+
+<Update label="May 29, 2026" description="v0.2.1">
+
+This week's release expands Mneno from a memory store into a full anti-context-rot runtime: conflict detection, hierarchical memory layers, sessions and timelines, deterministic and LLM-assisted extraction, local tracing, and evaluation tooling.
+
+### New features
+
+- **Conflict detection and lifecycle.** Mneno now detects contradictions, duplicates, and superseding facts with deterministic local heuristics. Memories carry lifecycle statuses (`active`, `superseded`, `archived`, `conflicted`), and resolution updates metadata with full audit history. Mneno never deletes memories automatically.
+- **Hierarchical memory layers.** Memories are organized into `short_term`, `working`, `episodic`, `semantic`, `operational`, and `archived` layers, with explainable promotion, demotion, and archival based on importance, access, recency, and type. Retrieval and [context building](/concepts/context-building) prioritize `operational`, `working`, and `semantic` memories by default.
+- **Sessions and timelines.** Group memories by `session_id` with `sequence_index` ordering, reconstruct deterministic timelines across one or many sessions, and boost current-session memories during retrieval. Closing or archiving a session never deletes its memories.
+- **Memory extraction from text.** A new `add_from_text` flow extracts structured memories from raw text. Deterministic extraction is the default; optional LLM-assisted extraction runs through the [provider interface](/advanced/providers) with strict Pydantic validation on every output.
+- **LLM-assisted compaction wording.** [Compaction](/concepts/compaction) decisions stay deterministic, but LLMs can now polish the wording of memories the engine has already chosen to merge. Invalid LLM output falls back to deterministic merged content.
+- **Local observability and tracing.** Opt-in, in-memory tracing for scoring, retrieval, reranking, context inclusion, compaction, hierarchy transitions, conflict resolution, extraction, and session actions. No external services, no network calls, no secrets in trace data.
+- **Evaluation and benchmark plumbing.** Deterministic metrics (precision@k, recall@k, MRR, token efficiency, reduction ratio, latency), operation reports, and a `BenchmarkAdapter` protocol so LOCOMO, LongMemEval, BEAM, and Mneno Bench integrations can live outside core.
+
+### Updates
+
+- **Provider retrieval and persistence (v0.2.0).** Earlier this week Mneno shipped JSON and SQLite [storage](/concepts/storage), [import/export and backup/restore](/advanced/import-export), provider protocols for embeddings, LLMs, and rerankers, and reranker-powered semantic search.
+- **Policy-driven context building (v0.1.2).** Explainable context packages, token-budget handling, and policy presets are available through `MemoryClient.build_context`. See [context building](/concepts/context-building).
+- **Local compaction engine (v0.1.1).** Preview/apply APIs, configurable compaction policies, decision stats, and deterministic merge and discard behavior. See [compaction](/concepts/compaction).
+- **Universal wheel artifacts.** Releases now publish universal wheels for easier installation across platforms.
+
+### Bug fixes
+
+- Search and context building now correctly exclude `archived` and `superseded` memories by default. Use the explicit inactive-inclusion option when you need them.
+- Older memory payloads without status, conflict links, or audit events load with safe defaults, preserving backward compatibility.
+- Sessions and layer metadata round-trip cleanly through JSON storage, SQLite storage, import/export, and backup/restore.
+
+</Update>
