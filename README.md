@@ -15,8 +15,10 @@ developers can see what memory was kept, merged, discarded, and why.
 ## Quickstart
 
 ```bash
-pip install mneno
+pip install --pre mneno
 ```
+
+The current alpha release is `0.3.0a1`.
 
 For local development:
 
@@ -51,12 +53,16 @@ for result in results:
 - **Explainable retrieval**: search returns ranked `MemorySearchResult` objects with score components and reasons.
 - **Auto-compaction**: preserve key claims when context gets too large or noisy.
 - **Explainable memory diff**: show what was kept, merged, discarded, and why.
-- **Semantic graph**: future relationship-aware retrieval layer, outside the MVP core.
+- **Lifecycle and hierarchy**: preserve audit history across conflicts, supersession, archival, and layer transitions.
+- **Sessions and timelines**: organize temporal continuity and reconstruct deterministic event order.
+- **Local observability**: inspect memory decisions with optional in-memory traces.
+- **Evaluation hooks**: produce deterministic metrics and versioned exports for Mneno Bench.
 
 ## Auto-Compaction With Explainable Diff
 
-Mneno can preview or apply deterministic local compaction. It does not call an LLM yet. The current engine keeps
-preserved memory types, merges simple duplicates, discards stale low-value memories, and returns an inspectable diff.
+Mneno can preview or apply deterministic local compaction. The engine keeps preserved memory types, merges simple
+duplicates, discards stale low-value memories, and returns an inspectable diff. An optional `LLMProvider` may improve
+wording only after deterministic policy has selected a merge group.
 
 ```python
 from mneno import MemoryClient
@@ -509,13 +515,11 @@ result = client.extract_memories(
 LLM-assisted compaction is intentionally limited: deterministic policy still decides what to keep, merge, or discard.
 The LLM may only improve merged memory wording for groups already selected by the deterministic engine.
 
-## Roadmap
+## Next Milestone
 
-- In-memory MVP storage and scoring.
-- Explainable compaction runtime.
-- Optional persistence backends.
-- Optional embedding and vector database integrations.
-- Semantic graph experiments as opt-in extensions.
+Mneno Core `0.3.0a1` includes the local runtime, persistence, providers, lifecycle management, sessions, tracing, and
+evaluation infrastructure. The next milestone is the separate Mneno Bench distribution with LOCOMO, LongMemEval, and
+BEAM adapters. CLI, MCP, and editor integrations remain distribution layers on top of the core SDK.
 
 ## License
 

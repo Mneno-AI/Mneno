@@ -1,0 +1,84 @@
+---
+title: "Observability and Tracing"
+description: "Inspect Mneno's local decision trail without external telemetry."
+---
+
+Mneno tracing records why memory operations made specific decisions. Traces are local, in-memory, deterministic, and disabled by default. Core tracing does not use OpenTelemetry, external services, telemetry uploads, or network calls.
+
+## Enable tracing
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient(trace_enabled=True)
+
+client.add("User prefers Python.", importance=0.9)
+results = client.search("Python")
+
+trace = client.get_trace(client.last_trace_id or "")
+```
+
+Search keeps its existing `list[MemorySearchResult]` return type. Use `client.last_trace_id` to inspect its latest trace. Result models such as `ContextPackage`, `CompactionDiff`, `ExtractionResult`, `HierarchyEvaluationResult`, and `Timeline` include a `trace_id` when tracing is enabled.
+
+## Inspect events
+
+```python
+if trace is not None:
+    for event in trace.events:
+        print(event.event_type, event.message)
+        print(event.memory_id, event.session_id, event.data)
+```
+
+Trace events cover operations such as:
+
+- candidate filtering and score calculation
+- semantic retrieval, reranking, and session boosts
+- context inclusion, exclusion, deduplication, and budget exhaustion
+- compaction decisions and storage mutations
+- conflict reports, resolutions, and audit additions
+- hierarchy retention scores and transitions
+- extraction mode and validation errors
+- session changes, continuity, and timeline ordering
+
+## Use `TraceInspector`
+
+```python
+from mneno import TraceInspector
+
+inspector = TraceInspector()
+
+if trace is not None:
+    print(inspector.summarize_trace(trace))
+
+    score_events = inspector.filter_events(trace, event_type="score_calculated")
+    explanations = inspector.explain_memory_decision(trace, results[0].memory.id)
+```
+
+You can filter by `event_type`, `memory_id`, or `session_id`.
+
+## Export traces
+
+```python
+payload = client.export_trace(client.last_trace_id or "")
+all_payloads = client.export_all_traces()
+```
+
+Single-trace exports use a stable versioned envelope:
+
+```json
+{
+  "format": "mneno.trace",
+  "version": 1,
+  "trace": {}
+}
+```
+
+Structured fields with credential-related names are redacted before recording. Do not place raw provider payloads or secrets in trace messages.
+
+## Clear local traces
+
+```python
+client.clear_traces()
+```
+
+Clearing traces does not alter stored memories.

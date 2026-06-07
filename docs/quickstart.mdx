@@ -5,11 +5,13 @@ description: "Install Mneno and start adding memories in minutes."
 
 ## Installation
 
-Install Mneno using pip:
+Mneno `0.3.0a1` is an alpha release. Install the latest pre-release from PyPI:
 
 ```bash
-pip install mneno
+pip install --pre mneno
 ```
+
+To install this exact release, use `pip install mneno==0.3.0a1`.
 
 ## Basic Usage
 
@@ -46,7 +48,7 @@ for result in results:
 
 ## Build Context for Prompts
 
-Mneno can help you build the perfect context for your LLM prompts, ensuring you stay within a token budget.
+Mneno builds explainable context for LLM prompts within a token budget.
 
 ```python
 # Build a context package with a 50-token budget
@@ -57,6 +59,33 @@ print(context.text)
 # See why items were included
 for item in context.included:
     print(f"Included: {item.memory_id} (Reason: {item.reason})")
+```
+
+## Inspect Decisions
+
+Tracing is local, optional, and disabled by default. Enable it when you need to inspect retrieval or context decisions.
+
+```python
+traced_client = MemoryClient(trace_enabled=True)
+traced_client.add("The user is building Mneno.", importance=0.9)
+
+traced_client.search("What is the user building?")
+trace = traced_client.get_trace(traced_client.last_trace_id or "")
+
+if trace is not None:
+    for event in trace.events:
+        print(event.event_type, event.message)
+```
+
+## Evaluate Behavior
+
+Evaluation wrappers return typed, serializable metrics for retrieval, context building, and compaction.
+
+```python
+result = traced_client.evaluate_context("What is the user building?", budget=1200)
+
+for metric in result.metrics:
+    print(metric.name, metric.value, metric.unit)
 ```
 
 ## Next Steps
@@ -73,5 +102,11 @@ for item in context.included:
   </Card>
   <Card title="Providers" icon="plug" href="/advanced/providers">
     Integrate with embeddings and rerankers.
+  </Card>
+  <Card title="Observability" icon="wave-pulse" href="/concepts/observability">
+    Inspect local decision traces.
+  </Card>
+  <Card title="Evaluation" icon="chart-line" href="/advanced/evaluation">
+    Measure runtime behavior and export benchmark results.
   </Card>
 </CardGroup>

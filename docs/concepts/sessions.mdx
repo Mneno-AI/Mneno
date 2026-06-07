@@ -1,0 +1,68 @@
+---
+title: "Sessions and Timelines"
+description: "Group memories over time and reconstruct deterministic continuity."
+---
+
+Sessions are lightweight temporal groupings. A memory has one primary `session_id`, and `sequence_index` preserves its order within that session.
+
+## Create a session
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+session = client.create_session(title="Mneno alpha release")
+
+client.add("Prepared the release workflow.", session_id=session.id)
+client.add("Published the alpha to PyPI.", session_id=session.id)
+```
+
+New sessions become active by default. Search and context building can boost memories from the active session and explain that boost.
+
+## Inspect session memories
+
+```python
+memories = client.list_session_memories(session.id)
+
+for memory in memories:
+    print(memory.sequence_index, memory.content)
+```
+
+You can also attach an existing memory with `client.add_memory_to_session(memory_id, session.id)`.
+
+## Close or archive sessions
+
+```python
+closed = client.close_session(session.id)
+print(closed.summary)
+
+archived = client.archive_session(session.id)
+print(archived.status)
+```
+
+Closing or archiving a session never deletes its memories. If you do not provide a close summary, Mneno creates one deterministically.
+
+## Build a timeline
+
+```python
+timeline = client.build_timeline(session_ids=[session.id])
+
+for event in timeline.events:
+    print(event.timestamp, event.sequence_index, event.content)
+```
+
+Timeline ordering is deterministic: timestamp, session ID, sequence index, then memory ID.
+
+## Recover continuity
+
+```python
+related = client.find_related_sessions("PyPI release")
+print(related.continuity_summary)
+
+context = client.get_session_context(
+    session.id,
+    "What happened during the release?",
+)
+```
+
+Continuity uses local relevance signals. Archived sessions are not treated as active continuity sources by default.

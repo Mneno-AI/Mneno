@@ -1,0 +1,116 @@
+---
+title: "Evaluation and Benchmarks"
+description: "Measure Mneno behavior and export stable results for Mneno Bench."
+---
+
+Mneno provides local evaluation infrastructure for retrieval, context building, and compaction. It does not bundle benchmark datasets, external evaluators, telemetry, or analytics uploads.
+
+## Evaluate search
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient(trace_enabled=True)
+memory = client.add("User is building Mneno.", importance=0.9)
+
+result = client.evaluate_search(
+    "What is the user building?",
+    relevant_memory_ids=[memory.id],
+    limit=10,
+)
+
+print(result.result_count, result.candidate_count, result.latency_ms)
+print(result.metrics)
+```
+
+When relevant IDs are supplied, search evaluation reports precision@k, recall@k, and MRR. It also reports scanned and selected counts, latency, decision count, and trace event count.
+
+## Evaluate context
+
+```python
+result = client.evaluate_context(
+    "What is the user building?",
+    budget=1200,
+    relevant_memory_ids=[memory.id],
+)
+
+print(result.included_count, result.excluded_count)
+print(result.estimated_tokens, result.budget)
+```
+
+Context evaluation includes token efficiency, budget utilization, inclusion and exclusion reason counts, relevance, latency, and trace coverage.
+
+## Evaluate compaction
+
+```python
+result = client.evaluate_compaction()
+
+print(result.before_count, result.after_count)
+print(result.reduction_ratio)
+```
+
+Compaction evaluation previews changes by default and does not mutate storage. Pass `apply=True` only when the evaluation should apply the compaction result.
+
+## Serialize operation results
+
+All evaluation result models provide stable JSON-compatible helpers:
+
+```python
+payload = result.to_dict()
+json_text = result.to_json()
+```
+
+## Build a benchmark report
+
+```python
+report = client.build_evaluation_report(
+    benchmark_name="local-smoke-test",
+    metrics=result.metrics,
+    trace_ids=result.trace_ids,
+    summary="Compaction evaluation complete",
+)
+
+benchmark_payload = client.export_benchmark_result(report)
+```
+
+Benchmark exports use this versioned envelope:
+
+```json
+{
+  "format": "mneno.benchmark.result",
+  "version": 1,
+  "benchmark": "local-smoke-test",
+  "created_at": "2026-06-07T12:00:00Z",
+  "metrics": [],
+  "traces": [],
+  "metadata": {}
+}
+```
+
+## Implement a benchmark adapter
+
+External benchmark packages implement `BenchmarkAdapter`:
+
+```python
+from mneno import BenchmarkAdapter, EvaluationReport, MemoryClient
+
+
+class LocalAdapter:
+    name = "local"
+
+    def prepare(self, client: MemoryClient) -> None:
+        self.client = client
+
+    def run(self) -> EvaluationReport:
+        result = self.client.evaluate_search("Mneno")
+        return self.client.build_evaluation_report(
+            benchmark_name=self.name,
+            metrics=result.metrics,
+            trace_ids=result.trace_ids,
+        )
+
+
+adapter: BenchmarkAdapter = LocalAdapter()
+```
+
+Future LOCOMO, LongMemEval, and BEAM adapters belong in the separate Mneno Bench distribution. They can consume these typed results and versioned trace exports without adding benchmark dependencies to core.

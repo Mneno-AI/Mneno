@@ -1,0 +1,85 @@
+---
+title: "Lifecycle and Hierarchy"
+description: "Manage conflicts, statuses, layers, and auditable memory transitions."
+---
+
+Mneno preserves memory history instead of silently deleting or overwriting it. Conflict resolution and hierarchy transitions are deterministic, local, and recorded in each memory's audit trail.
+
+## Memory statuses
+
+Memories use four lifecycle statuses:
+
+- `active`: available for normal retrieval
+- `superseded`: replaced by a newer memory but retained for history
+- `archived`: retained but excluded from default retrieval
+- `conflicted`: linked to another memory with an unresolved contradiction
+
+Search and context building exclude archived and superseded memories by default. Use explicit inactive-inclusion options only when you need historical records.
+
+## Detect conflicts while adding
+
+Conflict detection runs automatically by default. Use `add_with_report()` when you need the reports and resolution actions.
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+client.add("User prefers Python 3.10.", memory_type="preference")
+
+result = client.add_with_report(
+    "User now prefers Python 3.11.",
+    memory_type="preference",
+)
+
+for report in result.conflict_reports:
+    print(report.conflict_type, report.reason, report.suggested_action)
+
+print(result.resolution_actions)
+```
+
+Mneno never deletes memories during conflict resolution. Supersession links the old memory through `superseded_by`, while contradictions use `conflicts_with` links.
+
+## Detect without mutating storage
+
+```python
+reports = client.detect_conflicts("User does not prefer Python.")
+```
+
+Use `client.list_conflicts()` to reconstruct stored conflict reports from audit history.
+
+## Memory layers
+
+Mneno organizes memories into these layers:
+
+- `short_term`
+- `working`
+- `episodic`
+- `semantic`
+- `operational`
+- `archived`
+
+Operational, working, and semantic memories receive higher default retrieval priority. Retention decisions use transparent signals such as importance, access count, recency, memory type, status, and current layer.
+
+## Evaluate hierarchy transitions
+
+```python
+result = client.evaluate_hierarchy()
+
+print("Promoted:", [memory.id for memory in result.promoted])
+print("Demoted:", [memory.id for memory in result.demoted])
+print("Archived:", [memory.id for memory in result.archived])
+```
+
+Hierarchy evaluation archives rather than deletes. Every transition adds an audit event.
+
+## Manual transitions
+
+```python
+memory = client.add("Repeatedly useful project fact.", layer="short_term")
+
+episodic = client.promote_memory(memory.id, "episodic")
+semantic = client.promote_memory(episodic.id, "semantic")
+demoted = client.demote_memory(semantic.id, "episodic")
+```
+
+Invalid layer transitions raise a clear error. Use `client.list_by_layer("semantic")` to inspect one layer.

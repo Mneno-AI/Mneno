@@ -11,7 +11,7 @@ Mneno currently supports three types of providers via standard protocols:
 
 - **EmbeddingProvider**: Used for semantic search and relevance scoring.
 - **RerankerProvider**: Used for second-stage ranking of search results.
-- **LLMProvider**: Used for future features like summary generation and complex compaction.
+- **LLMProvider**: Used for validated memory extraction and optional wording improvements for deterministic compaction merges.
 
 ## Integrating an Embedding Provider
 
@@ -32,11 +32,9 @@ results = client.search("AI memory SDK", use_semantic=True)
 
 ### Implementing a Custom Provider
 
-You can integrate any service (OpenAI, Voyage AI, Cohere, etc.) by implementing the `EmbeddingProvider` protocol.
+You can integrate any service by implementing the `EmbeddingProvider` protocol in an optional integration package or application layer.
 
 ```python
-from typing import list
-
 class MyOpenAIProvider:
     name = "openai"
 
@@ -86,3 +84,5 @@ By using protocols instead of direct dependencies:
 - **Zero Core Bloat**: Mneno doesn't force you to install large SDKs like `openai` or `cohere`.
 - **Future Proof**: You can swap providers as better models become available without changing your core memory logic.
 - **Testability**: Use dummy providers for fast, deterministic local tests.
+
+Real provider SDKs, credentials, and network calls remain outside the core package.

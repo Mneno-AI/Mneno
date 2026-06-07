@@ -1,0 +1,64 @@
+---
+title: "Memory Extraction"
+description: "Extract validated structured memories from text locally or through an LLM provider."
+---
+
+Mneno can extract structured memories from raw text. Deterministic extraction is the default and requires no provider.
+
+## Extract without storing
+
+```python
+from mneno import MemoryClient
+
+client = MemoryClient()
+result = client.extract_memories(
+    "The user is building Mneno. The user prefers Python 3.11."
+)
+
+for item in result.extracted:
+    print(item.content, item.memory_type, item.importance)
+
+print(result.errors)
+```
+
+The result reports its extraction mode, extracted memories, and validation errors.
+
+## Extract and add memories
+
+```python
+result = client.add_from_text(
+    "The user is building Mneno. The user prefers Python 3.11."
+)
+
+for item in result.extracted:
+    print(item.memory_id, item.content)
+```
+
+Valid extracted memories can be added even when another extracted item fails validation.
+
+## Use an LLM provider
+
+LLM-assisted extraction uses only the `LLMProvider` protocol. Provider output must be structured JSON and pass Pydantic validation.
+
+```python
+from mneno import MemoryClient
+from mneno.providers import DummyLLMProvider
+
+client = MemoryClient(llm_provider=DummyLLMProvider())
+result = client.extract_memories(
+    "The user is building Mneno and prefers Python 3.11.",
+    use_llm=True,
+)
+```
+
+If `use_llm=True` and no provider is configured, Mneno raises a provider error. Invalid provider output produces explicit validation errors instead of being accepted silently.
+
+## LLM-assisted compaction wording
+
+LLMs do not choose which memories are deleted, merged, or retained. Deterministic policy makes those decisions first. An `LLMProvider` may only improve wording for a merge group that deterministic compaction already selected.
+
+```python
+diff = client.preview_compaction(use_llm=True)
+```
+
+If the provider returns invalid merge output, Mneno falls back to deterministic merged content.

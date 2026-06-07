@@ -24,16 +24,21 @@
             "group": "Core Concepts",
             "pages": [
               "concepts/scoring",
+              "concepts/lifecycle",
+              "concepts/sessions",
               "concepts/compaction",
               "concepts/context-building",
-              "concepts/storage"
+              "concepts/storage",
+              "concepts/observability"
             ]
           },
           {
             "group": "Advanced",
             "pages": [
               "advanced/providers",
-              "advanced/import-export"
+              "advanced/extraction",
+              "advanced/import-export",
+              "advanced/evaluation"
             ]
           }
         ]

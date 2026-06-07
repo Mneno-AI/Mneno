@@ -11,7 +11,7 @@ It is not just a memory store. Mneno is an **anti-context-rot memory runtime**: 
 
 Long-running AI systems accumulate stale facts, duplicated notes, noisy transcripts, and vague summaries. That context eventually makes retrieval worse, not better. 
 
-Mneno is built around **scoring**, **compaction**, and **explainable diffs** so developers can see what memory was kept, merged, discarded, and why.
+Mneno is built around **scoring**, **lifecycle management**, **compaction**, and **explainable decisions** so you can see what memory was retrieved, excluded, promoted, merged, discarded, or superseded and why.
 
 ## Key Features
 
@@ -21,6 +21,11 @@ Mneno is built around **scoring**, **compaction**, and **explainable diffs** so 
 - **Context Building**: Build deterministic context packages for prompt injection within a token budget.
 - **Persistent Storage**: Support for in-memory, JSON file, and SQLite storage.
 - **Provider Agnostic**: Protocol-based integration for embeddings, LLMs, and rerankers.
+- **Lifecycle and Hierarchy**: Preserve audit history across active, superseded, archived, and conflicted memories organized into deterministic layers.
+- **Sessions and Timelines**: Group memories into ordered sessions, reconstruct timelines, and recover continuity across related work.
+- **Structured Extraction**: Extract memories deterministically or through an optional validated `LLMProvider`.
+- **Local Observability**: Record in-memory traces for retrieval, context building, compaction, conflicts, hierarchy, extraction, and sessions.
+- **Evaluation Hooks**: Measure retrieval, context, compaction, token efficiency, latency, and explainability for future Mneno Bench adapters.
 
 ## Getting Started
 
@@ -30,5 +35,11 @@ Mneno is built around **scoring**, **compaction**, and **explainable diffs** so 
   </Card>
   <Card title="Core Concepts" icon="brain" href="/concepts/scoring">
     Learn how Mneno handles memory and context.
+  </Card>
+  <Card title="Observability" icon="wave-pulse" href="/concepts/observability">
+    Debug memory decisions with local traces.
+  </Card>
+  <Card title="Evaluation" icon="chart-line" href="/advanced/evaluation">
+    Produce benchmark-friendly metrics and exports.
   </Card>
 </CardGroup>

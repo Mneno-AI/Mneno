@@ -3,9 +3,36 @@ title: "Changelog"
 description: "Updates and improvements to Mneno."
 ---
 
+<Update label="June 7, 2026" description="v0.3.0a1">
+
+Mneno Core reached its first alpha milestone. This release stabilizes local observability and SDK-side evaluation infrastructure so runtime behavior can be inspected and benchmarked before external benchmark adapters are added.
+
+### Observability
+
+- Added typed `TraceEvent` and `OperationTrace` models with running, success, and error states.
+- Added an in-memory `TraceRecorder` and `TraceInspector` for summaries, event filtering, memory-decision explanations, and JSON-compatible exports.
+- Added opt-in tracing across search, context building, compaction, conflicts, hierarchy, extraction, sessions, continuity, and timelines.
+- Added structured secret-field redaction. Tracing remains local, optional, and disabled by default.
+- Added versioned trace envelopes using `format: "mneno.trace"` and `version: 1`.
+
+### Evaluation and Mneno Bench support
+
+- Added typed search, context, and compaction evaluation results with deterministic metrics and `to_dict()` / `to_json()` helpers.
+- Added precision@k, recall@k, MRR, token efficiency, context utilization, reduction ratio, latency, and explainability coverage metrics.
+- Added the runtime-checkable `BenchmarkAdapter` protocol for future LOCOMO, LongMemEval, BEAM, and Mneno Bench integrations outside core.
+- Added versioned benchmark exports using `format: "mneno.benchmark.result"` and `version: 1`.
+
+### Distribution
+
+- Published the first alpha to [PyPI](https://pypi.org/project/mneno/0.3.0a1/) as both a universal wheel and source distribution.
+- Added tokenless PyPI Trusted Publishing through GitHub Actions with tag/version validation and digital attestations.
+- Install the alpha with `pip install --pre mneno`.
+
+</Update>
+
 <Update label="May 29, 2026" description="v0.2.1">
 
-This week's release expands Mneno from a memory store into a full anti-context-rot runtime: conflict detection, hierarchical memory layers, sessions and timelines, deterministic and LLM-assisted extraction, local tracing, and evaluation tooling.
+This release expands Mneno from a memory store into a lifecycle-aware anti-context-rot runtime with conflict detection, hierarchical memory layers, sessions and timelines, and deterministic or LLM-assisted extraction.
 
 ### New features
 
@@ -14,8 +41,6 @@ This week's release expands Mneno from a memory store into a full anti-context-r
 - **Sessions and timelines.** Group memories by `session_id` with `sequence_index` ordering, reconstruct deterministic timelines across one or many sessions, and boost current-session memories during retrieval. Closing or archiving a session never deletes its memories.
 - **Memory extraction from text.** A new `add_from_text` flow extracts structured memories from raw text. Deterministic extraction is the default; optional LLM-assisted extraction runs through the [provider interface](/advanced/providers) with strict Pydantic validation on every output.
 - **LLM-assisted compaction wording.** [Compaction](/concepts/compaction) decisions stay deterministic, but LLMs can now polish the wording of memories the engine has already chosen to merge. Invalid LLM output falls back to deterministic merged content.
-- **Local observability and tracing.** Opt-in, in-memory tracing for scoring, retrieval, reranking, context inclusion, compaction, hierarchy transitions, conflict resolution, extraction, and session actions. No external services, no network calls, no secrets in trace data.
-- **Evaluation and benchmark plumbing.** Deterministic metrics (precision@k, recall@k, MRR, token efficiency, reduction ratio, latency), operation reports, and a `BenchmarkAdapter` protocol so LOCOMO, LongMemEval, BEAM, and Mneno Bench integrations can live outside core.
 
 ### Updates
 
