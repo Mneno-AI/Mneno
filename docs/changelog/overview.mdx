@@ -3,6 +3,15 @@ title: "Changelog"
 description: "Updates and improvements to Mneno."
 ---
 
+<Update label="June 7, 2026" description="v0.3.0a2">
+
+### Bug fix
+
+- `MemoryClient.evaluate_context()` now returns a valid empty evaluation for small positive budgets when no memory fits. Labeled evaluations report context relevance `0.0` instead of calling `recall_at_k` with `k=0`.
+- Added regression coverage for 2- and 3-token budgets, including operational memories occupying the first candidate slots.
+
+</Update>
+
 <Update label="June 7, 2026" description="v0.3.0a1">
 
 Mneno Core reached its first alpha milestone. This release stabilizes local observability and SDK-side evaluation infrastructure so runtime behavior can be inspected and benchmarked before external benchmark adapters are added.

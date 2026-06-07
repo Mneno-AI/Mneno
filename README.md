@@ -18,7 +18,7 @@ developers can see what memory was kept, merged, discarded, and why.
 pip install --pre mneno
 ```
 
-The current alpha release is `0.3.0a1`.
+The current alpha release is `0.3.0a2`.
 
 For local development:
 
