@@ -144,6 +144,33 @@ def test_client_evaluate_context_generates_metrics_and_trace_ids() -> None:
     assert json.loads(result.to_json()) == result.to_dict()
 
 
+def test_client_evaluate_context_allows_empty_context_with_relevance_labels() -> None:
+    client = MemoryClient(trace_enabled=True)
+    memories = [
+        client.add(
+            f"Operational memory number {index}",
+            memory_type="operational" if index < 4 else "semantic",
+        )
+        for index in range(10)
+    ]
+
+    for budget in (2, 3):
+        result = client.evaluate_context(
+            "What memories are available?",
+            budget=budget,
+            limit=4,
+            relevant_memory_ids=[memories[0].id],
+        )
+
+        metrics = {metric.name: metric.value for metric in result.metrics}
+        assert result.included_count == 0
+        assert result.excluded_count == 10
+        assert result.estimated_tokens == 0
+        assert metrics["context_relevance_score"] == 0.0
+        assert metrics["context_utilization_ratio"] == 0.0
+        assert result.trace_id is not None
+
+
 def test_client_evaluate_compaction_generates_metrics_without_mutating_by_default() -> None:
     client = MemoryClient(trace_enabled=True)
     client.add("User prefers Python.", importance=0.9)

@@ -866,7 +866,9 @@ class MemoryClient:
         decision_count = inclusion_reason_count + exclusion_reason_count
         included_ids = [item.memory_id for item in package.included]
         relevant_ids = relevant_memory_ids or []
-        context_relevance = recall_at_k(relevant_ids, included_ids, len(included_ids)) if relevant_ids else 0.0
+        context_relevance = (
+            recall_at_k(relevant_ids, included_ids, len(included_ids)) if relevant_ids and included_ids else 0.0
+        )
         original_tokens = sum(item.estimated_tokens for item in package.included) + sum(
             item.estimated_tokens for item in package.excluded
         )
