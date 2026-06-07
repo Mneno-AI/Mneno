@@ -246,7 +246,9 @@ Rules:
   extraction, session actions, and timeline ordering.
 - Trace messages and data must be explainable and stable enough for tests.
 - Do not put API keys, secrets, credentials, or raw provider payloads in trace data by default.
+- Sanitize structured trace metadata before recording it, especially provider and credential-related fields.
 - Prefer structured event data over opaque text blobs.
+- Keep trace schemas stable and JSON-compatible for Mneno Bench consumers.
 - Tracing must remain backward compatible with existing public return types.
 
 ## Evaluation And Benchmark Integration
@@ -256,8 +258,11 @@ Mneno Bench support is local-first benchmark plumbing, not bundled benchmark dat
 Rules:
 
 - Evaluation must be deterministic and structural unless a future explicit evaluator provider is introduced.
+- The evaluation layer standardizes runtime measurements and exports; benchmark datasets and task-specific scoring stay
+  in Mneno Bench.
 - Do not add external benchmark dependencies, online telemetry, uploads, network calls, or hosted services to core.
 - Export schemas must be stable and versioned.
+- Schema changes should be additive where practical and require an explicit version change when compatibility breaks.
 - Operation evaluation reports should be serializable and include metrics, operation metadata, timing, counts, and trace
   references where available.
 - Metrics should remain simple and explainable: precision@k, recall@k, MRR, token efficiency, reduction ratio, latency,

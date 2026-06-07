@@ -32,10 +32,12 @@ from mneno.evaluation import (
     MetricResult,
     SearchEvaluationResult,
     build_benchmark_payload,
+    context_utilization_ratio,
     mean_reciprocal_rank,
     metric,
     precision_at_k,
     recall_at_k,
+    reduction_ratio,
     token_efficiency_ratio,
 )
 from mneno.extraction import DeterministicMemoryExtractor, ExtractionResult, LLMMemoryExtractor
@@ -58,7 +60,13 @@ from mneno.models import (
     SearchMemoryRequest,
     utc_now,
 )
-from mneno.observability import OperationTrace, TraceRecorder, TraceStatus
+from mneno.observability import (
+    TRACE_EXPORT_FORMAT,
+    TRACE_EXPORT_VERSION,
+    CompletedTraceStatus,
+    OperationTrace,
+    TraceRecorder,
+)
 from mneno.providers.embedding import EmbeddingProvider
 from mneno.providers.exceptions import ProviderNotFoundError
 from mneno.providers.llm import LLMProvider
@@ -111,8 +119,8 @@ class MemoryClient:
         self.session_manager = session_manager or SessionManager()
         self.continuity_manager = continuity_manager or ContinuityManager()
         self.active_session_id = active_session_id
-        self.trace_enabled = trace_enabled
-        self.trace_recorder = trace_recorder or (TraceRecorder() if trace_enabled else None)
+        self.trace_enabled = trace_enabled or trace_recorder is not None
+        self.trace_recorder = trace_recorder or (TraceRecorder() if self.trace_enabled else None)
         self.last_trace_id: str | None = None
         self.scorer = scorer or TemporalMemoryScorer(policy=self.policy, embedding_provider=embedding_provider)
         self.compactor = compactor or CompactionEngine(scorer=self.scorer, llm_provider=llm_provider)
@@ -193,6 +201,14 @@ class MemoryClient:
         if self.auto_detect_conflicts:
             self._trace_event(trace, event_type="conflict_detection_started", message="Conflict detection started")
             existing = self._active_existing_memories()
+            for existing_memory in existing:
+                self._trace_event(
+                    trace,
+                    event_type="memory_compared",
+                    message=f"Compared new memory with memory {existing_memory.id}",
+                    memory_id=existing_memory.id,
+                    data={"new_memory_id": memory.id},
+                )
             reports = self.conflict_detector.detect(memory, existing, policy=self.conflict_policy)
             for report in reports:
                 self._trace_event(
@@ -206,11 +222,28 @@ class MemoryClient:
             memory = resolution.new_memory
             actions = resolution.actions
             for action in actions:
+                self._trace_event(trace, event_type="resolution_action_applied", message=action)
                 self._trace_event(trace, event_type="conflict_resolution_action", message=action)
             for updated in resolution.updated_existing:
                 self.store.update(updated)
+                if updated.audit:
+                    self._trace_event(
+                        trace,
+                        event_type="audit_event_added",
+                        message=updated.audit[-1].reason,
+                        memory_id=updated.id,
+                        data={"audit_event_type": updated.audit[-1].event_type},
+                    )
 
         stored = self.store.add(memory)
+        if reports and stored.audit:
+            self._trace_event(
+                trace,
+                event_type="audit_event_added",
+                message=stored.audit[-1].reason,
+                memory_id=stored.id,
+                data={"audit_event_type": stored.audit[-1].event_type},
+            )
         self._trace_event(
             trace,
             event_type="memory_added",
@@ -272,7 +305,7 @@ class MemoryClient:
 
     def close_session(self, session_id: str, *, summary: str | None = None) -> Session:
         """Close a session and persist its deterministic summary."""
-        trace = self._start_trace("session_close", metadata={"session_id": session_id})
+        trace = self._start_trace("session_update", metadata={"action": "close", "session_id": session_id})
         session = self._require_session(session_id)
         memories = self.list_session_memories(session_id)
         resolved_summary = summary if summary is not None else self.session_manager.summarize_session(session, memories)
@@ -292,7 +325,7 @@ class MemoryClient:
 
     def archive_session(self, session_id: str) -> Session:
         """Archive a session without deleting its memories."""
-        trace = self._start_trace("session_archive", metadata={"session_id": session_id})
+        trace = self._start_trace("session_update", metadata={"action": "archive", "session_id": session_id})
         session = self._require_session(session_id)
         updated = self.session_manager.archive_session(session)
         if self.active_session_id == session_id:
@@ -309,7 +342,9 @@ class MemoryClient:
 
     def add_memory_to_session(self, memory_id: str, session_id: str) -> Memory:
         """Attach an existing memory to a primary session."""
-        trace = self._start_trace("session_attach", metadata={"memory_id": memory_id, "session_id": session_id})
+        trace = self._start_trace(
+            "session_update", metadata={"action": "attach_memory", "memory_id": memory_id, "session_id": session_id}
+        )
         memory = self._require_memory(memory_id)
         self._require_session(session_id)
         attached = self._attach_stored_memory_to_session(memory, session_id, trace=trace)
@@ -334,12 +369,18 @@ class MemoryClient:
                 session_id=event.session_id,
                 data={"sequence_index": event.sequence_index, "timestamp": event.timestamp.isoformat()},
             )
+        self._trace_event(
+            trace,
+            event_type="timeline_built",
+            message=f"Built timeline with {len(timeline.events)} events",
+            data={"event_count": len(timeline.events), "session_ids": timeline.session_ids},
+        )
         trace_id = self._end_trace(trace, summary=timeline.summary)
         return timeline.model_copy(update={"trace_id": trace_id})
 
     def find_related_sessions(self, query: str, *, limit: int = 5) -> ContinuityResult:
         """Find related sessions and continuity memories for a query."""
-        trace = self._start_trace("continuity", metadata={"query": query, "limit": limit})
+        trace = self._start_trace("session_context", metadata={"query": query, "limit": limit, "mode": "continuity"})
         result = self.continuity_manager.find_related(
             query,
             sessions=self.store.list_sessions(),
@@ -390,16 +431,39 @@ class MemoryClient:
     def evaluate_hierarchy(self, policy: LayerPolicy | None = None) -> HierarchyEvaluationResult:
         """Evaluate hierarchy transitions and persist updated memories safely."""
         trace = self._start_trace("hierarchy_evaluation", metadata={"memory_count": len(self.store.list())})
+        self._trace_event(trace, event_type="hierarchy_evaluation_started", message="Hierarchy evaluation started")
         result = self.hierarchy_manager.evaluate(self.store.list(), policy=policy or self.layer_policy)
-        for memory in [*result.promoted, *result.demoted, *result.archived, *result.unchanged]:
-            self._trace_event(
-                trace,
-                event_type="retention_score_calculated",
-                message=f"Retention score calculated for memory {memory.id}",
-                memory_id=memory.id,
-                data={"retention_score": memory.retention_score, "layer": memory.layer.value},
-            )
-            self.store.update(memory)
+        categorized = [
+            ("promoted", result.promoted),
+            ("demoted", result.demoted),
+            ("archived", result.archived),
+            ("unchanged", result.unchanged),
+        ]
+        for transition, memories in categorized:
+            for memory in memories:
+                self._trace_event(
+                    trace,
+                    event_type="retention_score_calculated",
+                    message=f"Retention score calculated for memory {memory.id}",
+                    memory_id=memory.id,
+                    data={"retention_score": memory.retention_score, "layer": memory.layer.value},
+                )
+                self._trace_event(
+                    trace,
+                    event_type=transition,
+                    message=f"Memory {memory.id} was {transition}",
+                    memory_id=memory.id,
+                    data={"layer": memory.layer.value},
+                )
+                if transition != "unchanged" and memory.audit:
+                    self._trace_event(
+                        trace,
+                        event_type="audit_event_added",
+                        message=memory.audit[-1].reason,
+                        memory_id=memory.id,
+                        data={"audit_event_type": memory.audit[-1].event_type},
+                    )
+                self.store.update(memory)
         for action in result.actions:
             self._trace_event(trace, event_type="hierarchy_transition", message=action)
         trace_id = self._end_trace(trace, summary=f"Hierarchy evaluated {len(self.store.list())} memories")
@@ -458,8 +522,17 @@ class MemoryClient:
     def detect_conflicts(self, memory: Memory | str) -> builtins.list[ConflictReport]:
         """Detect conflicts for a memory object or temporary content string without mutating storage."""
         trace = self._start_trace("conflict_detection", metadata={"temporary": isinstance(memory, str)})
+        self._trace_event(trace, event_type="conflict_detection_started", message="Conflict detection started")
         candidate = Memory(content=memory) if isinstance(memory, str) else memory
         existing = [stored for stored in self._active_existing_memories() if stored.id != candidate.id]
+        for existing_memory in existing:
+            self._trace_event(
+                trace,
+                event_type="memory_compared",
+                message=f"Compared candidate with memory {existing_memory.id}",
+                memory_id=existing_memory.id,
+                data={"candidate_memory_id": candidate.id},
+            )
         reports = self.conflict_detector.detect(candidate, existing, policy=self.conflict_policy)
         for report in reports:
             self._trace_event(
@@ -522,11 +595,34 @@ class MemoryClient:
     ) -> builtins.list[MemorySearchResult]:
         """Search local memories and return ranked, explainable results."""
         trace = self._start_trace("search", metadata={"query": query, "limit": limit})
+        self._trace_event(
+            trace,
+            event_type="query_received",
+            message="Search query received",
+            data={"query": query, "limit": limit},
+        )
         request = SearchMemoryRequest(query=query, limit=limit)
         should_use_semantic = self._should_use_semantic(use_semantic)
         should_use_reranker = self._should_use_reranker(use_reranker)
         all_memory_count = len(self.store.list())
+        self._trace_event(
+            trace,
+            event_type="memories_loaded",
+            message=f"Loaded {all_memory_count} memories",
+            data={"memory_count": all_memory_count},
+        )
         searchable_memories = self._searchable_memories(include_inactive=include_inactive or include_archived)
+        self._trace_event(
+            trace,
+            event_type="inactive_filtering_applied",
+            message="Inactive memory filtering skipped"
+            if include_inactive or include_archived
+            else "Archived and superseded memories excluded",
+            data={
+                "applied": not (include_inactive or include_archived),
+                "excluded_count": all_memory_count - len(searchable_memories),
+            },
+        )
         self._trace_event(
             trace,
             event_type="candidate_filtering",
@@ -541,10 +637,30 @@ class MemoryClient:
         )
         scored: builtins.list[tuple[Memory, MemoryScore]] = []
         active_session_id = current_session_id or self.active_session_id
+        session_matches = (
+            sum(memory.session_id == active_session_id for memory in searchable_memories)
+            if active_session_id is not None
+            else 0
+        )
+        self._trace_event(
+            trace,
+            event_type="session_boost_stage",
+            message="Session boost used" if session_matches else "Session boost skipped",
+            session_id=active_session_id,
+            data={"used": session_matches > 0, "boosted_candidate_count": session_matches},
+        )
         for memory in searchable_memories:
             score = self.scorer.score(memory, query=request.query, use_semantic=should_use_semantic)
             if active_session_id is not None and memory.session_id == active_session_id:
                 score = self._boost_session_score(score, "Memory belongs to active session")
+                self._trace_event(
+                    trace,
+                    event_type="session_boost_applied",
+                    message="Applied active-session score boost",
+                    memory_id=memory.id,
+                    session_id=active_session_id,
+                    data={"boost": 0.1},
+                )
             if memory.status is MemoryStatus.CONFLICTED:
                 score = score.model_copy(update={"reasons": [*score.reasons, "Memory is marked conflicted"]})
             self._trace_event(
@@ -654,10 +770,10 @@ class MemoryClient:
             raise KeyError(f"Trace not found: {trace_id}")
         return self.trace_recorder.export_trace(trace_id)
 
-    def export_all_traces(self) -> builtins.list[dict[str, Any]]:
+    def export_all_traces(self) -> dict[str, Any]:
         """Export all traces as stable benchmark-friendly dictionaries."""
         if self.trace_recorder is None:
-            return []
+            return {"format": TRACE_EXPORT_FORMAT, "version": TRACE_EXPORT_VERSION, "traces": []}
         return self.trace_recorder.export_all_traces()
 
     def evaluate_search(
@@ -688,27 +804,30 @@ class MemoryClient:
         latency_ms = _elapsed_ms(started)
         trace_ids = self._new_trace_ids(before_trace_id)
         trace_event_count = self._trace_event_count(trace_ids)
+        decision_count = candidate_count
         selected_ids = [result.memory.id for result in results]
         relevant_ids = relevant_memory_ids or []
         metrics = [
-            metric("retrieval_precision", precision_at_k(selected_ids, relevant_ids, limit)),
-            metric("retrieval_recall", recall_at_k(selected_ids, relevant_ids, limit)),
-            metric("retrieval_mrr", mean_reciprocal_rank(selected_ids, relevant_ids)),
+            metric("retrieval_precision", precision_at_k(relevant_ids, selected_ids, limit)),
+            metric("retrieval_recall", recall_at_k(relevant_ids, selected_ids, limit)),
+            metric("retrieval_mrr", mean_reciprocal_rank(relevant_ids, selected_ids)),
             metric("latency_ms", latency_ms, unit="ms"),
-            metric("memories_scanned", float(candidate_count), unit="count"),
-            metric("memories_selected", float(len(selected_ids)), unit="count"),
-            metric("trace_event_count", float(trace_event_count), unit="count"),
+            metric("memories_scanned", candidate_count, unit="count"),
+            metric("memories_selected", len(selected_ids), unit="count"),
+            metric("trace_event_count", trace_event_count, unit="count"),
+            metric("decision_count", decision_count, unit="count"),
         ]
         return SearchEvaluationResult(
             query=query,
+            result_count=len(selected_ids),
+            candidate_count=candidate_count,
+            latency_ms=latency_ms,
+            trace_id=trace_ids[-1] if trace_ids else None,
+            metrics=metrics,
             selected_memory_ids=selected_ids,
             relevant_memory_ids=relevant_ids,
-            candidate_count=candidate_count,
-            selected_count=len(selected_ids),
             memories_scanned=candidate_count,
             explainability_event_count=trace_event_count,
-            latency_ms=latency_ms,
-            metrics=metrics,
             trace_ids=trace_ids,
             metadata={"limit": limit},
         )
@@ -717,7 +836,7 @@ class MemoryClient:
         self,
         query: str,
         *,
-        budget: int | ContextBudget | None = None,
+        budget: int | ContextBudget | None = 1200,
         preset: ContextPreset | str | None = "balanced",
         policy: ContextPolicy | None = None,
         limit: int | None = None,
@@ -742,32 +861,47 @@ class MemoryClient:
         latency_ms = _elapsed_ms(started)
         trace_ids = self._new_trace_ids(before_trace_id)
         trace_event_count = self._trace_event_count(trace_ids)
+        inclusion_reason_count = len(package.included)
+        exclusion_reason_count = len(package.excluded)
+        decision_count = inclusion_reason_count + exclusion_reason_count
         included_ids = [item.memory_id for item in package.included]
         relevant_ids = relevant_memory_ids or []
-        context_relevance = recall_at_k(included_ids, relevant_ids, len(included_ids)) if relevant_ids else 0.0
+        context_relevance = recall_at_k(relevant_ids, included_ids, len(included_ids)) if relevant_ids else 0.0
+        original_tokens = sum(item.estimated_tokens for item in package.included) + sum(
+            item.estimated_tokens for item in package.excluded
+        )
         metrics = [
-            metric("context_token_count", float(package.stats.used_tokens), unit="tokens"),
+            metric("context_token_count", package.stats.used_tokens, unit="tokens"),
             metric("context_relevance_score", context_relevance),
             metric(
                 "token_efficiency_ratio",
-                token_efficiency_ratio(package.stats.used_tokens, package.stats.available_tokens),
+                token_efficiency_ratio(original_tokens, package.stats.used_tokens),
+            ),
+            metric(
+                "context_utilization_ratio",
+                context_utilization_ratio(package.stats.used_tokens, package.stats.available_tokens),
             ),
             metric("latency_ms", latency_ms, unit="ms"),
-            metric("memories_scanned", float(package.stats.total_candidates), unit="count"),
-            metric("memories_selected", float(len(included_ids)), unit="count"),
-            metric("trace_event_count", float(trace_event_count), unit="count"),
+            metric("memories_scanned", package.stats.total_candidates, unit="count"),
+            metric("memories_selected", len(included_ids), unit="count"),
+            metric("trace_event_count", trace_event_count, unit="count"),
+            metric("decision_count", decision_count, unit="count"),
+            metric("inclusion_reason_count", inclusion_reason_count, unit="count"),
+            metric("exclusion_reason_count", exclusion_reason_count, unit="count"),
         ]
         return ContextEvaluationResult(
             query=query,
+            included_count=len(package.included),
+            excluded_count=len(package.excluded),
+            estimated_tokens=package.stats.used_tokens,
+            budget=package.stats.available_tokens,
+            latency_ms=latency_ms,
+            trace_id=trace_ids[-1] if trace_ids else None,
+            metrics=metrics,
             included_memory_ids=included_ids,
             excluded_memory_ids=[item.memory_id for item in package.excluded],
-            token_count=package.stats.used_tokens,
-            available_tokens=package.stats.available_tokens,
             candidate_count=package.stats.total_candidates,
-            selected_count=len(included_ids),
             explainability_event_count=trace_event_count,
-            latency_ms=latency_ms,
-            metrics=metrics,
             trace_ids=trace_ids,
             metadata={"policy_name": package.policy_name, "preset": package.preset},
         )
@@ -790,24 +924,30 @@ class MemoryClient:
         latency_ms = _elapsed_ms(started)
         trace_ids = self._new_trace_ids(before_trace_id)
         trace_event_count = self._trace_event_count(trace_ids)
+        compaction_decision_count = len(diff.kept) + len(diff.merged) + len(diff.discarded)
+        compacted_reduction_ratio = reduction_ratio(diff.stats.before_count, diff.stats.after_count)
         metrics = [
-            metric("compaction_reduction_ratio", diff.stats.estimated_reduction_ratio),
+            metric("compaction_reduction_ratio", compacted_reduction_ratio),
             metric("compaction_information_retention", _information_retention(diff), unit="ratio"),
             metric("latency_ms", latency_ms, unit="ms"),
-            metric("memories_scanned", float(diff.stats.before_count), unit="count"),
-            metric("memories_selected", float(diff.stats.after_count), unit="count"),
-            metric("trace_event_count", float(trace_event_count), unit="count"),
+            metric("memories_scanned", diff.stats.before_count, unit="count"),
+            metric("memories_selected", diff.stats.after_count, unit="count"),
+            metric("trace_event_count", trace_event_count, unit="count"),
+            metric("decision_count", compaction_decision_count, unit="count"),
+            metric("compaction_decision_count", compaction_decision_count, unit="count"),
         ]
         return CompactionEvaluationResult(
             before_count=diff.stats.before_count,
             after_count=diff.stats.after_count,
+            reduction_ratio=compacted_reduction_ratio,
+            latency_ms=latency_ms,
+            trace_id=trace_ids[-1] if trace_ids else None,
+            metrics=metrics,
             kept_count=diff.stats.kept_count,
             merged_count=diff.stats.merged_count,
             discarded_count=diff.stats.discarded_count,
             created_count=diff.stats.created_count,
             explainability_event_count=trace_event_count,
-            latency_ms=latency_ms,
-            metrics=metrics,
             trace_ids=trace_ids,
             metadata={"applied": apply, "summary": diff.summary},
         )
@@ -850,7 +990,13 @@ class MemoryClient:
     ) -> CompactionDiff:
         """Analyze compaction without mutating storage."""
         trace = self._start_trace("preview_compaction", metadata={"memory_count": len(self.store.list())})
-        self._trace_event(trace, event_type="compaction_policy_selected", message="Compaction policy selected")
+        active_policy = policy or self.compactor.policy
+        self._trace_event(
+            trace,
+            event_type="compaction_policy_selected",
+            message="Compaction policy selected",
+            data=active_policy.model_dump(mode="json"),
+        )
         diff = self.compactor.compact(self.store.list(), policy=policy, use_llm=self._should_use_llm(use_llm))
         self._trace_compaction_decisions(trace, diff)
         trace_id = self._end_trace(trace, summary=diff.summary)
@@ -859,7 +1005,13 @@ class MemoryClient:
     def compact(self, policy: CompactionPolicy | None = None, *, use_llm: bool | None = None) -> CompactionDiff:
         """Compact current storage and return an explainable diff."""
         trace = self._start_trace("compact", metadata={"memory_count": len(self.store.list())})
-        self._trace_event(trace, event_type="compaction_policy_selected", message="Compaction policy selected")
+        active_policy = policy or self.compactor.policy
+        self._trace_event(
+            trace,
+            event_type="compaction_policy_selected",
+            message="Compaction policy selected",
+            data=active_policy.model_dump(mode="json"),
+        )
         diff = self.compactor.compact(self.store.list(), policy=policy, use_llm=self._should_use_llm(use_llm))
         self._trace_compaction_decisions(trace, diff)
         for decision in [*diff.discarded, *diff.merged]:
@@ -884,12 +1036,31 @@ class MemoryClient:
     def extract_memories(self, text: str, *, use_llm: bool | None = None) -> ExtractionResult:
         """Extract structured memories from raw text."""
         trace = self._start_trace("extraction", metadata={"use_llm": use_llm})
-        if self._should_use_llm(use_llm):
+        self._trace_event(trace, event_type="extraction_started", message="Memory extraction started")
+        should_use_llm = self._should_use_llm(use_llm)
+        self._trace_event(
+            trace,
+            event_type="llm_extractor_stage",
+            message="LLM extractor used" if should_use_llm else "LLM extractor skipped",
+            data={"used": should_use_llm},
+        )
+        if should_use_llm:
             if self.llm_provider is None:
                 raise ProviderNotFoundError("LLM-assisted operation requires an LLM provider")
             result = LLMMemoryExtractor(self.llm_provider).extract(text)
         else:
+            self._trace_event(
+                trace,
+                event_type="deterministic_extractor_used",
+                message="Deterministic extractor used",
+            )
             result = DeterministicMemoryExtractor().extract(text)
+        for error in result.errors:
+            self._trace_event(
+                trace,
+                event_type="extraction_validation_error",
+                message=error,
+            )
         self._trace_event(
             trace,
             event_type="extraction_completed",
@@ -956,7 +1127,12 @@ class MemoryClient:
     ) -> ContextPackage:
         """Build an explainable context package for a query."""
         trace = self._start_trace("build_context", metadata={"query": query, "preset": str(preset)})
-        self._trace_event(trace, event_type="query_received", message=f"Context query received: {query}")
+        self._trace_event(
+            trace,
+            event_type="query_received",
+            message="Context query received",
+            data={"query": query},
+        )
         context_policy, policy_name, preset_name = self._resolve_context_policy(
             budget=budget,
             preset=preset,
@@ -971,6 +1147,16 @@ class MemoryClient:
                 "preset": preset_name,
                 "available_tokens": context_policy.available_tokens,
                 "max_tokens": context_policy.max_tokens,
+            },
+        )
+        self._trace_event(
+            trace,
+            event_type="context_budget_calculated",
+            message=f"Calculated context budget of {context_policy.available_tokens} available tokens",
+            data={
+                "max_tokens": context_policy.max_tokens,
+                "reserve_tokens": context_policy.reserve_tokens,
+                "available_tokens": context_policy.available_tokens,
             },
         )
         memories = self._searchable_memories(include_inactive=include_inactive or include_archived)
@@ -992,6 +1178,13 @@ class MemoryClient:
         for included_item in package.included:
             self._trace_event(
                 trace,
+                event_type="context_candidate_scored",
+                message=f"Context score {included_item.score:.3f} calculated for memory {included_item.memory_id}",
+                memory_id=included_item.memory_id,
+                data={"score": included_item.score, "estimated_tokens": included_item.estimated_tokens},
+            )
+            self._trace_event(
+                trace,
                 event_type="context_item_included",
                 message=included_item.reason,
                 memory_id=included_item.memory_id,
@@ -1000,11 +1193,33 @@ class MemoryClient:
         for excluded_item in package.excluded:
             self._trace_event(
                 trace,
+                event_type="context_candidate_scored",
+                message=f"Context score {excluded_item.score:.3f} calculated for memory {excluded_item.memory_id}",
+                memory_id=excluded_item.memory_id,
+                data={"score": excluded_item.score, "estimated_tokens": excluded_item.estimated_tokens},
+            )
+            self._trace_event(
+                trace,
                 event_type="context_item_excluded",
                 message=excluded_item.reason,
                 memory_id=excluded_item.memory_id,
                 data={"score": excluded_item.score, "estimated_tokens": excluded_item.estimated_tokens},
             )
+            if "duplicate content" in excluded_item.reason:
+                self._trace_event(
+                    trace,
+                    event_type="duplicate_removed",
+                    message=excluded_item.reason,
+                    memory_id=excluded_item.memory_id,
+                )
+            if "budget exhausted" in excluded_item.reason:
+                self._trace_event(
+                    trace,
+                    event_type="budget_exhausted",
+                    message=excluded_item.reason,
+                    memory_id=excluded_item.memory_id,
+                    data={"available_tokens": package.stats.available_tokens},
+                )
         self._trace_event(
             trace,
             event_type="context_stats",
@@ -1143,7 +1358,7 @@ class MemoryClient:
         )
 
     def _end_trace(
-        self, trace: OperationTrace | None, *, summary: str | None = None, status: TraceStatus = "success"
+        self, trace: OperationTrace | None, *, summary: str | None = None, status: CompletedTraceStatus = "success"
     ) -> str | None:
         if not self.trace_enabled or self.trace_recorder is None or trace is None:
             return None
@@ -1153,6 +1368,13 @@ class MemoryClient:
 
     def _trace_compaction_decisions(self, trace: OperationTrace | None, diff: CompactionDiff) -> None:
         for decision in [*diff.kept, *diff.merged, *diff.discarded]:
+            self._trace_event(
+                trace,
+                event_type="memory_evaluated",
+                message=f"Evaluated memory {decision.memory_id} for compaction",
+                memory_id=decision.memory_id,
+                data={"score": decision.score_before},
+            )
             self._trace_event(
                 trace,
                 event_type="compaction_decision",

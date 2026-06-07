@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from typing import Any
 
 from mneno.observability.events import TraceEvent
 from mneno.observability.trace import OperationTrace
@@ -19,20 +19,17 @@ class TraceInspector:
             f"{len(trace.events)} events."
         )
 
-    def explain_memory_decision(self, trace: OperationTrace, memory_id: str) -> str:
-        """Explain all trace events related to a memory."""
+    def explain_memory_decision(self, trace: OperationTrace, memory_id: str) -> list[str]:
+        """Return messages from all trace events related to a memory."""
         events = self.filter_events(trace, memory_id=memory_id)
-        if not events:
-            return f"No trace events found for memory {memory_id}."
-        messages = [event.message for event in events]
-        return f"Memory {memory_id}: " + " | ".join(messages)
+        return [event.message for event in events]
 
     def filter_events(
         self,
         trace: OperationTrace,
-        *,
         event_type: str | None = None,
         memory_id: str | None = None,
+        session_id: str | None = None,
     ) -> list[TraceEvent]:
         """Filter trace events by event type and/or memory ID."""
         events = trace.events
@@ -40,8 +37,10 @@ class TraceInspector:
             events = [event for event in events if event.event_type == event_type]
         if memory_id is not None:
             events = [event for event in events if event.memory_id == memory_id]
+        if session_id is not None:
+            events = [event for event in events if event.session_id == session_id]
         return events
 
-    def export_trace_json(self, trace: OperationTrace) -> str:
-        """Export a trace as stable JSON."""
-        return json.dumps(trace.model_dump(mode="json"), indent=2, sort_keys=True)
+    def export_trace_json(self, trace: OperationTrace) -> dict[str, Any]:
+        """Export a trace as a stable JSON-compatible dictionary."""
+        return trace.model_dump(mode="json")

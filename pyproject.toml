@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mneno"
-version = "0.2.1"
+version = "0.3.0a1"
 description = "An anti-context-rot memory runtime for AI agents and AI applications."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["ai", "agents", "memory", "context", "sdk"]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: Apache Software License",
   "Programming Language :: Python",

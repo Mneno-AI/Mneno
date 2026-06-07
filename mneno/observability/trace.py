@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from mneno.models import utc_now
 from mneno.observability.events import TraceEvent
 
-TraceStatus = Literal["success", "error"]
+TraceStatus = Literal["running", "success", "error"]
+CompletedTraceStatus = Literal["success", "error"]
 
 
 class OperationTrace(BaseModel):
@@ -25,6 +26,6 @@ class OperationTrace(BaseModel):
     completed_at: datetime | None = None
     duration_ms: float | None = Field(default=None, ge=0.0)
     events: list[TraceEvent] = Field(default_factory=list)
-    status: TraceStatus = "success"
+    status: TraceStatus = "running"
     summary: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -304,12 +304,12 @@ client.search("Python")
 trace = client.get_trace(client.last_trace_id)
 
 for event in trace.events:
-    print(event.operation, event.message)
+    print(event.event_type, event.message)
 ```
 
 Use `client.list_traces()` and `client.clear_traces()` to inspect or reset local traces. `TraceInspector` can summarize
-traces, filter events by memory or event type, explain a memory decision, and export a trace as JSON. Traces are intended
-for developer debugging and avoid external tracing dependencies.
+traces, filter events by memory, session, or event type, explain a memory decision, and export a stable JSON-compatible
+dictionary. Trace data stays local and structured secret fields are redacted before recording.
 
 ## Evaluation And Benchmark Integration
 
@@ -331,24 +331,45 @@ report = client.evaluate_context(
 print(report.metrics)
 ```
 
-Evaluation helpers cover retrieval precision/recall/MRR, token efficiency, compaction reduction, structural retention,
-latency, scanned/selected memory counts, and trace event counts. Use `evaluate_search()`, `evaluate_context()`, and
-`evaluate_compaction()` to create serializable operation reports. Use `export_benchmark_result()` to produce the stable
-Mneno Bench payload:
+Evaluation helpers cover retrieval precision/recall/MRR, token efficiency, context utilization, compaction reduction,
+latency, scanned/selected memory counts, and explainability coverage. `evaluate_search()`, `evaluate_context()`, and
+`evaluate_compaction()` return typed, serializable operation results with `to_dict()` and `to_json()` helpers.
+
+`EvaluationReport` groups metrics and trace references for one benchmark run. `export_benchmark_result()` produces the
+stable Mneno Bench payload:
 
 ```json
 {
   "format": "mneno.benchmark.result",
   "version": 1,
   "benchmark": "synthetic",
+  "created_at": "2026-06-07T12:00:00Z",
   "metrics": [],
   "traces": [],
   "metadata": {}
 }
 ```
 
-External LOCOMO, LongMemEval, BEAM, or Mneno Bench adapters can implement `BenchmarkAdapter` without changing core SDK
-behavior.
+Trace exports use a separate versioned envelope:
+
+```json
+{
+  "format": "mneno.trace",
+  "version": 1,
+  "trace": {}
+}
+```
+
+Mneno Bench can implement `BenchmarkAdapter`, run SDK evaluation wrappers, collect their metrics and trace IDs, and
+persist these envelopes for comparison across datasets and runtime versions. External LOCOMO, LongMemEval, and BEAM
+adapters remain outside the core SDK.
+
+Alpha releases are published to PyPI from version tags through GitHub Actions and PyPI Trusted Publishing. Install the
+latest pre-release with:
+
+```bash
+pip install --pre mneno
+```
 
 ## Provider Architecture
 

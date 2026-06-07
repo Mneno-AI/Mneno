@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -13,12 +14,20 @@ class MetricResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1)
-    value: float
-    unit: str = Field(min_length=1)
+    value: float | int
+    unit: str | None = Field(default=None, min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-compatible metric dictionary."""
+        return self.model_dump(mode="json")
 
-def precision_at_k(retrieved_ids: list[str], relevant_ids: list[str], k: int) -> float:
+    def to_json(self) -> str:
+        """Return stable metric JSON text."""
+        return json.dumps(self.to_dict(), indent=2, sort_keys=True)
+
+
+def precision_at_k(relevant_ids: list[str], retrieved_ids: list[str], k: int) -> float:
     """Return precision@k for retrieved IDs."""
     if k <= 0:
         raise ValueError("k must be greater than 0")
@@ -29,7 +38,7 @@ def precision_at_k(retrieved_ids: list[str], relevant_ids: list[str], k: int) ->
     return len([memory_id for memory_id in selected if memory_id in relevant]) / len(selected)
 
 
-def recall_at_k(retrieved_ids: list[str], relevant_ids: list[str], k: int) -> float:
+def recall_at_k(relevant_ids: list[str], retrieved_ids: list[str], k: int) -> float:
     """Return recall@k for retrieved IDs."""
     if k <= 0:
         raise ValueError("k must be greater than 0")
@@ -40,7 +49,7 @@ def recall_at_k(retrieved_ids: list[str], relevant_ids: list[str], k: int) -> fl
     return len(selected & relevant) / len(relevant)
 
 
-def mean_reciprocal_rank(retrieved_ids: list[str], relevant_ids: list[str]) -> float:
+def mean_reciprocal_rank(relevant_ids: list[str], retrieved_ids: list[str]) -> float:
     """Return reciprocal rank for one query."""
     relevant = set(relevant_ids)
     if not relevant:
@@ -51,11 +60,12 @@ def mean_reciprocal_rank(retrieved_ids: list[str], relevant_ids: list[str]) -> f
     return 0.0
 
 
-def token_efficiency_ratio(selected_tokens: int, available_tokens: int) -> float:
-    """Return selected token usage divided by available token budget."""
-    if available_tokens <= 0:
-        raise ValueError("available_tokens must be greater than 0")
-    return selected_tokens / available_tokens
+def token_efficiency_ratio(original_tokens: int, final_tokens: int) -> float:
+    """Return the fraction of original tokens removed from the final output."""
+    _validate_non_negative_tokens(original_tokens, final_tokens)
+    if original_tokens == 0:
+        return 0.0
+    return max((original_tokens - final_tokens) / original_tokens, 0.0)
 
 
 def reduction_ratio(before_count: int, after_count: int) -> float:
@@ -67,6 +77,26 @@ def reduction_ratio(before_count: int, after_count: int) -> float:
     return max((before_count - after_count) / before_count, 0.0)
 
 
-def metric(name: str, value: float, *, unit: str = "ratio", metadata: dict[str, Any] | None = None) -> MetricResult:
+def context_utilization_ratio(used_tokens: int, available_tokens: int) -> float:
+    """Return the fraction of available context budget used."""
+    _validate_non_negative_tokens(used_tokens, available_tokens)
+    if available_tokens == 0:
+        return 0.0
+    return min(used_tokens / available_tokens, 1.0)
+
+
+def metric(
+    name: str,
+    value: float | int,
+    *,
+    unit: str | None = "ratio",
+    metadata: dict[str, Any] | None = None,
+) -> MetricResult:
     """Create a rounded metric result."""
-    return MetricResult(name=name, value=round(value, 6), unit=unit, metadata=metadata or {})
+    rounded_value = round(value, 6) if isinstance(value, float) else value
+    return MetricResult(name=name, value=rounded_value, unit=unit, metadata=metadata or {})
+
+
+def _validate_non_negative_tokens(first: int, second: int) -> None:
+    if first < 0 or second < 0:
+        raise ValueError("token counts must be non-negative")
