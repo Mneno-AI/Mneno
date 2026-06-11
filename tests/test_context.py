@@ -42,6 +42,42 @@ def test_build_context_includes_highest_scoring_memory_first() -> None:
     assert weaker.id in {item.memory_id for item in context.included}
 
 
+def test_tight_budget_preserves_highest_relevance_evidence() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    expected = client.add("Python memory SDK.", importance=0.1)
+    lower_value = client.add("Office chair inventory.", importance=1.0)
+
+    context = client.build_context("Python memory SDK", budget=3)
+
+    assert [item.memory_id for item in context.included] == [expected.id]
+    excluded = next(item for item in context.excluded if item.memory_id == lower_value.id)
+    assert excluded.reason == "Excluded because budget exhausted"
+
+
+def test_duplicate_suppression_keeps_best_scored_duplicate() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    weaker = client.add("Python memory SDK.", importance=0.1)
+    stronger = client.add("Python memory SDK.", importance=0.9)
+
+    context = client.build_context("Python memory SDK", budget=20)
+
+    assert [item.memory_id for item in context.included] == [stronger.id]
+    excluded = next(item for item in context.excluded if item.memory_id == weaker.id)
+    assert excluded.reason == "Excluded because duplicate content already included"
+
+
+def test_context_explanation_includes_session_and_score_reasons() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    session = client.create_session(title="Current")
+    memory = client.add("Python memory SDK.", session_id=session.id)
+
+    context = client.build_context("Python memory SDK", budget=20, current_session_id=session.id)
+
+    assert context.included[0].memory_id == memory.id
+    assert "Session match boost applied for active session" in context.included[0].reason
+    assert "Matched query term: memory" in context.included[0].reason
+
+
 def test_build_context_supports_context_budget_object() -> None:
     client = MemoryClient()
     client.add("User prefers Python 3.11.", importance=0.8)

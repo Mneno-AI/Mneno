@@ -91,6 +91,50 @@ def test_tracing_enabled_records_search_trace() -> None:
     assert any(event.event_type == "final_results_selected" for event in trace.events)
 
 
+def test_search_trace_includes_score_breakdown_identity_rank_and_decision() -> None:
+    client = MemoryClient(trace_enabled=True, auto_detect_conflicts=False)
+    included = client.add(
+        "Python memory SDK.",
+        metadata={
+            "dataset_memory_id": "dialog-1",
+            "source_id": "source-1",
+            "dataset_id": "dataset-1",
+            "locomo_id": "locomo-1",
+            "original_id": "original-1",
+        },
+    )
+    excluded = client.add("Office chair inventory.")
+
+    client.search("Python memory SDK", limit=1)
+    trace = client.get_trace(client.last_trace_id or "")
+
+    assert trace is not None
+    score_event = next(
+        event for event in trace.events if event.event_type == "score_calculated" and event.memory_id == included.id
+    )
+    assert score_event.data["internal_memory_id"] == included.id
+    assert score_event.data["dataset_memory_id"] == "dialog-1"
+    assert score_event.data["source_id"] == "source-1"
+    assert score_event.data["dataset_id"] == "dataset-1"
+    assert score_event.data["locomo_id"] == "locomo-1"
+    assert score_event.data["original_id"] == "original-1"
+    assert score_event.data["keyword_relevance_component"] > 0
+    assert score_event.data["exact_query_terms"] == ["memory", "python", "sdk"]
+    assert score_event.data["phrase_match"] is True
+    assert "recency_component" in score_event.data
+    assert "hierarchy_layer_adjustment" in score_event.data
+    decisions = [event for event in trace.events if event.event_type == "retrieval_candidate_decision"]
+    assert any(
+        event.memory_id == included.id and event.data["rank"] == 1 and event.data["included"] for event in decisions
+    )
+    assert any(
+        event.memory_id == excluded.id
+        and not event.data["included"]
+        and "exceeds limit" in event.data["exclusion_reason"]
+        for event in decisions
+    )
+
+
 def test_search_trace_records_session_boost() -> None:
     client = MemoryClient(trace_enabled=True)
     session = client.create_session(title="Active work")
@@ -118,6 +162,26 @@ def test_tracing_enabled_records_build_context_trace_and_trace_id() -> None:
     assert any(event.event_type == "context_budget_calculated" for event in trace.events)
     assert any(event.event_type == "context_candidate_scored" for event in trace.events)
     assert any(event.event_type == "context_stats" for event in trace.events)
+
+
+def test_context_trace_includes_rank_score_breakdown_and_exclusion_reason() -> None:
+    client = MemoryClient(trace_enabled=True, auto_detect_conflicts=False)
+    included = client.add("Python memory SDK.", metadata={"source_id": "source-1"})
+    excluded = client.add("Office chair inventory.", importance=1.0)
+
+    context = client.build_context("Python memory SDK", budget=3)
+    trace = client.get_trace(context.trace_id or "")
+
+    assert trace is not None
+    scored = [event for event in trace.events if event.event_type == "context_candidate_scored"]
+    included_event = next(event for event in scored if event.memory_id == included.id)
+    excluded_event = next(event for event in scored if event.memory_id == excluded.id)
+    assert included_event.data["source_id"] == "source-1"
+    assert included_event.data["rank"] == 1
+    assert included_event.data["included"] is True
+    assert included_event.data["score_reasons"]
+    assert excluded_event.data["included"] is False
+    assert excluded_event.data["exclusion_reason"] == "Excluded because budget exhausted"
 
 
 def test_context_trace_records_duplicate_and_budget_exclusions() -> None:

@@ -1,7 +1,8 @@
 from datetime import timedelta
 
 from mneno import MemoryClient
-from mneno.models import Memory, MemorySearchResult, utc_now
+from mneno.hierarchy import MemoryLayer
+from mneno.models import Memory, MemorySearchResult, MemoryStatus, utc_now
 from mneno.scoring.temporal import calculate_memory_score
 
 
@@ -65,6 +66,77 @@ def test_score_ordering_prefers_relevant_important_memory() -> None:
 
     assert [result.memory.id for result in results][0] == relevant.id
     assert results[0].score.total >= results[1].score.total
+
+
+def test_exact_query_match_receives_clear_boost_and_reason() -> None:
+    exact = calculate_memory_score(Memory(content="Python runtime."), query="Python")
+    unrelated = calculate_memory_score(Memory(content="TypeScript runtime."), query="Python")
+
+    assert exact.relevance > unrelated.relevance
+    assert exact.total > unrelated.total
+    assert "Matched query term: python" in exact.reasons
+
+
+def test_query_relevance_outweighs_importance_for_unrelated_memory() -> None:
+    relevant = calculate_memory_score(Memory(content="Python memory SDK.", importance=0.0), query="Python memory SDK")
+    important_noise = calculate_memory_score(
+        Memory(content="Office chair inventory.", importance=1.0), query="Python memory SDK"
+    )
+
+    assert relevant.total > important_noise.total
+
+
+def test_inactive_status_penalties_remain_strong_and_explainable() -> None:
+    active = calculate_memory_score(Memory(content="Python memory SDK."), query="Python memory SDK")
+    archived = calculate_memory_score(
+        Memory(content="Python memory SDK.", status=MemoryStatus.ARCHIVED), query="Python memory SDK"
+    )
+    superseded = calculate_memory_score(
+        Memory(content="Python memory SDK.", status=MemoryStatus.SUPERSEDED), query="Python memory SDK"
+    )
+
+    assert active.total > archived.total
+    assert active.total > superseded.total
+    assert "Archived memory penalty applied" in archived.reasons
+    assert "Superseded memory penalty applied" in superseded.reasons
+
+
+def test_layer_priority_still_affects_score() -> None:
+    operational = calculate_memory_score(
+        Memory(content="Current Python task.", layer=MemoryLayer.OPERATIONAL), query="Python task"
+    )
+    episodic = calculate_memory_score(
+        Memory(content="Current Python task.", layer=MemoryLayer.EPISODIC), query="Python task"
+    )
+
+    assert operational.total > episodic.total
+    assert "Operational layer retrieval boost applied" in operational.reasons
+
+
+def test_lexical_matching_normalizes_case_punctuation_and_simple_plurals() -> None:
+    punctuation = calculate_memory_score(Memory(content="The Python SDK is local."), query="PYTHON, SDK?")
+    plural = calculate_memory_score(Memory(content="A durable memory runtime."), query="memories")
+
+    assert punctuation.relevance > 0.9
+    assert plural.relevance > 0
+    assert "Normalized query term match: memory" in plural.reasons
+
+
+def test_stopwords_do_not_dilute_query_relevance() -> None:
+    with_stopwords = calculate_memory_score(Memory(content="Python is preferred."), query="What is the Python?")
+    without_stopwords = calculate_memory_score(Memory(content="Python is preferred."), query="Python")
+
+    assert with_stopwords.relevance == without_stopwords.relevance
+
+
+def test_short_phrase_overlap_beats_scattered_terms_and_keyword_stuffing() -> None:
+    phrase = calculate_memory_score(Memory(content="Python memory SDK."), query="Python memory SDK")
+    scattered = calculate_memory_score(
+        Memory(content="Python filler memory repeated filler SDK Python Python."), query="Python memory SDK"
+    )
+
+    assert phrase.relevance > scattered.relevance
+    assert "Short query phrase match" in phrase.reasons
 
 
 def test_client_delete() -> None:

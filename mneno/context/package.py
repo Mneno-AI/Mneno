@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from mneno.context.policies import ContextPolicy
 
@@ -67,3 +69,4 @@ class ContextPackage(BaseModel):
     excluded: list[ExcludedContextItem] = Field(default_factory=list)
     stats: ContextStats
     trace_id: str | None = None
+    _retrieval_diagnostics: list[Any] = PrivateAttr(default_factory=list)

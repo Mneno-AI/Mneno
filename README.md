@@ -18,7 +18,7 @@ developers can see what memory was kept, merged, discarded, and why.
 pip install --pre mneno
 ```
 
-The current alpha release is `0.3.0a2`.
+The current alpha release is `0.3.0a3`.
 
 For local development:
 
@@ -287,11 +287,13 @@ for event in timeline.events:
     print(event.content)
 ```
 
-Session-aware retrieval boosts the active session so current work stays visible. Use `get_session_context()` to build
-context for one session, `find_related_sessions()` to recover continuity across related sessions, and
-`build_timeline()` to reconstruct deterministic event order from timestamps and per-session sequence indexes. Sessions,
-timeline metadata, and memory session links are preserved by JSON storage, SQLite storage, import/export, backup, and
-restore.
+Session-aware retrieval gives the active session a bounded deterministic boost and gives related sessions a smaller
+continuity boost. Query relevance remains able to outrank irrelevant current-session content. Lightweight lexical
+matching normalizes case, punctuation, stopwords, and simple plural variants while rewarding short phrase matches
+without counting repeated keywords. Use `get_session_context()` to build context for one session,
+`find_related_sessions()` to recover continuity across related sessions, and `build_timeline()` to reconstruct
+deterministic event order from timestamps and per-session sequence indexes. Sessions, timeline metadata, and memory
+session links are preserved by JSON storage, SQLite storage, import/export, backup, and restore.
 
 ## Observability And Tracing
 
@@ -316,6 +318,10 @@ for event in trace.events:
 Use `client.list_traces()` and `client.clear_traces()` to inspect or reset local traces. `TraceInspector` can summarize
 traces, filter events by memory, session, or event type, explain a memory decision, and export a stable JSON-compatible
 dictionary. Trace data stays local and structured secret fields are redacted before recording.
+
+Retrieval and context traces include per-candidate score components, final rank, inclusion or exclusion decisions,
+session and continuity boosts, and stable source identity fields such as `source_id`, `dataset_id`, `locomo_id`, and
+`original_id` when those values are present in memory metadata. Benchmark adapters can also use `dataset_memory_id`.
 
 ## Evaluation And Benchmark Integration
 

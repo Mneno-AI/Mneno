@@ -115,25 +115,25 @@ def test_reranking_engine_partial_index_list_appends_remaining_results() -> None
     assert [result.memory.content for result in reranked] == ["Second", "First", "Third"]
 
 
-def test_client_search_works_unchanged_without_reranker() -> None:
+def test_client_search_uses_core_relevance_ranking_without_reranker() -> None:
     client = MemoryClient()
-    strong = client.add("Unrelated architecture note.", importance=1.0)
-    client.add("Python SDK memory.", importance=0.1)
+    client.add("Unrelated architecture note.", importance=1.0)
+    relevant = client.add("Python SDK memory.", importance=0.1)
 
     results = client.search("Python")
 
-    assert results[0].memory.id == strong.id
+    assert results[0].memory.id == relevant.id
     assert results[0].rerank_reason is None
 
 
 def test_client_search_use_reranker_false_skips_provider() -> None:
     client = MemoryClient(reranker_provider=DummyRerankerProvider())
-    strong = client.add("Unrelated architecture note.", importance=1.0)
-    client.add("Python SDK memory.", importance=0.1)
+    client.add("Unrelated architecture note.", importance=1.0)
+    relevant = client.add("Python SDK memory.", importance=0.1)
 
     results = client.search("Python", use_reranker=False)
 
-    assert results[0].memory.id == strong.id
+    assert results[0].memory.id == relevant.id
     assert results[0].rerank_reason is None
 
 

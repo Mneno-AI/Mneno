@@ -72,7 +72,7 @@ from mneno.providers.exceptions import ProviderNotFoundError
 from mneno.providers.llm import LLMProvider
 from mneno.providers.reranker import RerankerProvider
 from mneno.retrieval.rerank import RerankingEngine
-from mneno.scoring.temporal import TemporalMemoryScorer
+from mneno.scoring.temporal import TemporalMemoryScorer, score_trace_data, session_adjusted_score
 from mneno.sessions import ContinuityManager, ContinuityResult, Session, SessionManager, Timeline
 from mneno.storage.base import MemoryStore
 from mneno.storage.memory import InMemoryMemoryStore
@@ -637,6 +637,7 @@ class MemoryClient:
         )
         scored: builtins.list[tuple[Memory, MemoryScore]] = []
         active_session_id = current_session_id or self.active_session_id
+        related_session_ids = self._related_session_ids(request.query, current_session_id=active_session_id)
         session_matches = (
             sum(memory.session_id == active_session_id for memory in searchable_memories)
             if active_session_id is not None
@@ -647,19 +648,54 @@ class MemoryClient:
             event_type="session_boost_stage",
             message="Session boost used" if session_matches else "Session boost skipped",
             session_id=active_session_id,
-            data={"used": session_matches > 0, "boosted_candidate_count": session_matches},
+            data={
+                "used": session_matches > 0 or bool(related_session_ids),
+                "boosted_candidate_count": session_matches,
+                "related_session_count": len(related_session_ids),
+            },
         )
         for memory in searchable_memories:
             score = self.scorer.score(memory, query=request.query, use_semantic=should_use_semantic)
+            score = session_adjusted_score(
+                score,
+                memory=memory,
+                current_session_id=active_session_id,
+                related_session_ids=related_session_ids,
+                query=request.query,
+            )
             if active_session_id is not None and memory.session_id == active_session_id:
-                score = self._boost_session_score(score, "Memory belongs to active session")
                 self._trace_event(
                     trace,
                     event_type="session_boost_applied",
                     message="Applied active-session score boost",
                     memory_id=memory.id,
                     session_id=active_session_id,
-                    data={"boost": 0.1},
+                    data={
+                        "boost": score_trace_data(
+                            memory,
+                            score,
+                            query=request.query,
+                            current_session_id=active_session_id,
+                            related_session_ids=related_session_ids,
+                        )["current_session_boost"]
+                    },
+                )
+            elif memory.session_id in related_session_ids:
+                self._trace_event(
+                    trace,
+                    event_type="continuity_boost_applied",
+                    message="Applied related-session continuity score boost",
+                    memory_id=memory.id,
+                    session_id=memory.session_id,
+                    data={
+                        "boost": score_trace_data(
+                            memory,
+                            score,
+                            query=request.query,
+                            current_session_id=active_session_id,
+                            related_session_ids=related_session_ids,
+                        )["continuity_boost"]
+                    },
                 )
             if memory.status is MemoryStatus.CONFLICTED:
                 score = score.model_copy(update={"reasons": [*score.reasons, "Memory is marked conflicted"]})
@@ -670,6 +706,14 @@ class MemoryClient:
                 memory_id=memory.id,
                 session_id=memory.session_id,
                 data={
+                    **_memory_trace_identity(memory),
+                    **score_trace_data(
+                        memory,
+                        score,
+                        query=request.query,
+                        current_session_id=active_session_id,
+                        related_session_ids=related_session_ids,
+                    ),
                     "total": score.total,
                     "relevance": score.relevance,
                     "importance": score.importance,
@@ -703,6 +747,33 @@ class MemoryClient:
         )
         ranked = self.reranking_engine.rerank(request.query, candidates) if should_use_reranker else candidates
         results = ranked[: request.limit]
+        for result in ranked:
+            included = result.rank <= request.limit
+            exclusion_reason = (
+                None if included else f"Excluded because rank {result.rank} exceeds limit {request.limit}"
+            )
+            self._trace_event(
+                trace,
+                event_type="retrieval_candidate_decision",
+                message="Candidate included in final search results"
+                if included
+                else exclusion_reason or "Candidate excluded",
+                memory_id=result.memory.id,
+                session_id=result.memory.session_id,
+                data={
+                    **_memory_trace_identity(result.memory),
+                    **score_trace_data(
+                        result.memory,
+                        result.score,
+                        query=request.query,
+                        current_session_id=active_session_id,
+                        related_session_ids=related_session_ids,
+                    ),
+                    "rank": result.rank,
+                    "included": included,
+                    "exclusion_reason": exclusion_reason,
+                },
+            )
         self._trace_event(
             trace,
             event_type="final_results_selected",
@@ -1162,6 +1233,8 @@ class MemoryClient:
             },
         )
         memories = self._searchable_memories(include_inactive=include_inactive or include_archived)
+        active_session_id = current_session_id or self.active_session_id
+        related_session_ids = self._related_session_ids(query, current_session_id=active_session_id)
         self._trace_event(
             trace,
             event_type="context_candidates",
@@ -1175,51 +1248,55 @@ class MemoryClient:
             policy_name=policy_name,
             preset=preset_name,
             limit=limit,
-            active_session_id=current_session_id or self.active_session_id,
+            active_session_id=active_session_id,
+            related_session_ids=related_session_ids,
         )
-        for included_item in package.included:
+        estimated_tokens_by_memory_id = {item.memory_id: item.estimated_tokens for item in package.included}
+        estimated_tokens_by_memory_id.update({item.memory_id: item.estimated_tokens for item in package.excluded})
+        for decision in self.context_builder.diagnostics(package):
+            trace_data = {
+                **_memory_trace_identity(decision.memory),
+                **score_trace_data(
+                    decision.memory,
+                    decision.score,
+                    query=query,
+                    current_session_id=active_session_id,
+                    related_session_ids=related_session_ids,
+                ),
+                "rank": decision.rank,
+                "included": decision.included,
+                "exclusion_reason": None if decision.included else decision.reason,
+                "estimated_tokens": estimated_tokens_by_memory_id[decision.memory.id],
+            }
             self._trace_event(
                 trace,
                 event_type="context_candidate_scored",
-                message=f"Context score {included_item.score:.3f} calculated for memory {included_item.memory_id}",
-                memory_id=included_item.memory_id,
-                data={"score": included_item.score, "estimated_tokens": included_item.estimated_tokens},
+                message=f"Context score {decision.score.total:.3f} calculated for memory {decision.memory.id}",
+                memory_id=decision.memory.id,
+                session_id=decision.memory.session_id,
+                data=trace_data,
             )
             self._trace_event(
                 trace,
-                event_type="context_item_included",
-                message=included_item.reason,
-                memory_id=included_item.memory_id,
-                data={"score": included_item.score, "estimated_tokens": included_item.estimated_tokens},
+                event_type="context_item_included" if decision.included else "context_item_excluded",
+                message=decision.reason,
+                memory_id=decision.memory.id,
+                session_id=decision.memory.session_id,
+                data=trace_data,
             )
-        for excluded_item in package.excluded:
-            self._trace_event(
-                trace,
-                event_type="context_candidate_scored",
-                message=f"Context score {excluded_item.score:.3f} calculated for memory {excluded_item.memory_id}",
-                memory_id=excluded_item.memory_id,
-                data={"score": excluded_item.score, "estimated_tokens": excluded_item.estimated_tokens},
-            )
-            self._trace_event(
-                trace,
-                event_type="context_item_excluded",
-                message=excluded_item.reason,
-                memory_id=excluded_item.memory_id,
-                data={"score": excluded_item.score, "estimated_tokens": excluded_item.estimated_tokens},
-            )
-            if "duplicate content" in excluded_item.reason:
+            if "duplicate content" in decision.reason:
                 self._trace_event(
                     trace,
                     event_type="duplicate_removed",
-                    message=excluded_item.reason,
-                    memory_id=excluded_item.memory_id,
+                    message=decision.reason,
+                    memory_id=decision.memory.id,
                 )
-            if "budget exhausted" in excluded_item.reason:
+            if "budget exhausted" in decision.reason:
                 self._trace_event(
                     trace,
                     event_type="budget_exhausted",
-                    message=excluded_item.reason,
-                    memory_id=excluded_item.memory_id,
+                    message=decision.reason,
+                    memory_id=decision.memory.id,
                     data={"available_tokens": package.stats.available_tokens},
                 )
         self._trace_event(
@@ -1297,8 +1374,14 @@ class MemoryClient:
         )
         return stored
 
-    def _boost_session_score(self, score: MemoryScore, reason: str) -> MemoryScore:
-        return score.model_copy(update={"total": min(score.total + 0.1, 1.0), "reasons": [*score.reasons, reason]})
+    def _related_session_ids(self, query: str, *, current_session_id: str | None) -> set[str]:
+        result = self.continuity_manager.find_related(
+            query,
+            sessions=self.store.list_sessions(),
+            memories=self.store.list(),
+            limit=5,
+        )
+        return {session.id for session in result.related_sessions if session.id != current_session_id}
 
     def _record_access(self, memory_ids: Iterable[str], *, trace: OperationTrace | None = None) -> None:
         for memory_id in memory_ids:
@@ -1401,6 +1484,15 @@ def _metadata_list(value: object) -> builtins.list[str]:
     if isinstance(value, list):
         return [str(item) for item in value]
     return []
+
+
+def _memory_trace_identity(memory: Memory) -> dict[str, object]:
+    identity: dict[str, object] = {"internal_memory_id": memory.id}
+    for key in ("dataset_memory_id", "source_id", "dataset_id", "locomo_id", "original_id"):
+        value = memory.metadata.get(key)
+        if value is not None:
+            identity[key] = value
+    return identity
 
 
 def _elapsed_ms(started: float) -> float:
