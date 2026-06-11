@@ -11,7 +11,7 @@ from mneno.hierarchy.layers import LAYER_PRIORITY, MemoryLayer
 from mneno.models import Memory, MemoryScore, MemorySearchResult
 from mneno.providers.reranker import RerankerProvider
 from mneno.retrieval.rerank import RerankingEngine
-from mneno.scoring.temporal import TemporalMemoryScorer
+from mneno.scoring.temporal import TemporalMemoryScorer, session_adjusted_score
 
 
 @dataclass(frozen=True)
@@ -20,6 +20,15 @@ class _Candidate:
     score: MemoryScore
     estimated_tokens: int
     rerank_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class _ContextDecision:
+    memory: Memory
+    score: MemoryScore
+    rank: int
+    included: bool
+    reason: str
 
 
 class ContextBuilder:
@@ -45,15 +54,18 @@ class ContextBuilder:
         preset: str | None = None,
         limit: int | None = None,
         active_session_id: str | None = None,
+        related_session_ids: set[str] | None = None,
     ) -> ContextPackage:
         """Build an explainable context package from candidate memories."""
         all_candidates = [
             _Candidate(
                 memory=memory,
-                score=_session_adjusted_score(
+                score=session_adjusted_score(
                     self.scorer.score(memory, query=query),
                     memory=memory,
-                    active_session_id=active_session_id,
+                    current_session_id=active_session_id,
+                    related_session_ids=related_session_ids,
+                    query=query,
                 ),
                 estimated_tokens=estimate_tokens(memory.content),
             )
@@ -62,10 +74,21 @@ class ContextBuilder:
         sorted_candidates = self._sort_candidates(all_candidates, strategy=policy.strategy)
         sorted_candidates = self._rerank_candidates(query, sorted_candidates)
         candidates = sorted_candidates[:limit] if limit is not None else sorted_candidates
-        excluded = [
-            self._exclude(candidate, "Excluded because not selected by policy")
-            for candidate in sorted_candidates[len(candidates) :]
-        ]
+        rank_by_memory_id = {candidate.memory.id: rank for rank, candidate in enumerate(sorted_candidates, start=1)}
+        excluded = []
+        decisions: list[_ContextDecision] = []
+        for candidate in sorted_candidates[len(candidates) :]:
+            reason = "Excluded because not selected by policy"
+            excluded.append(self._exclude(candidate, reason))
+            decisions.append(
+                _ContextDecision(
+                    memory=candidate.memory,
+                    score=candidate.score,
+                    rank=rank_by_memory_id[candidate.memory.id],
+                    included=False,
+                    reason=reason,
+                )
+            )
 
         included: list[ContextItem] = []
         used_tokens = 0
@@ -76,30 +99,35 @@ class ContextBuilder:
             normalized_content = _normalize_content(candidate.memory.content)
             is_preserved = self._is_preserved(candidate.memory, policy)
             if policy.dedupe and normalized_content in included_content:
-                excluded.append(self._exclude(candidate, "Excluded because duplicate content already included"))
+                reason = "Excluded because duplicate content already included"
+                excluded.append(self._exclude(candidate, reason))
+                decisions.append(self._decision(candidate, rank_by_memory_id, included=False, reason=reason))
                 continue
 
             if candidate.score.total < policy.min_score and not is_preserved:
-                excluded.append(
-                    self._exclude(
-                        candidate,
-                        f"Excluded because score {candidate.score.total:.2f} is below min_score {policy.min_score:.2f}",
-                    )
-                )
+                reason = f"Excluded because score {candidate.score.total:.2f} is below min_score {policy.min_score:.2f}"
+                excluded.append(self._exclude(candidate, reason))
+                decisions.append(self._decision(candidate, rank_by_memory_id, included=False, reason=reason))
                 continue
 
             candidate_count_after_filter += 1
             if policy.max_items is not None and len(included) >= policy.max_items:
-                excluded.append(self._exclude(candidate, "Excluded because max_items reached"))
+                reason = "Excluded because max_items reached"
+                excluded.append(self._exclude(candidate, reason))
+                decisions.append(self._decision(candidate, rank_by_memory_id, included=False, reason=reason))
                 continue
 
             if used_tokens + candidate.estimated_tokens > policy.available_tokens:
-                excluded.append(self._exclude(candidate, "Excluded because budget exhausted"))
+                reason = "Excluded because budget exhausted"
+                excluded.append(self._exclude(candidate, reason))
+                decisions.append(self._decision(candidate, rank_by_memory_id, included=False, reason=reason))
                 continue
 
             used_tokens += candidate.estimated_tokens
             included_content.add(normalized_content)
-            included.append(self._include(candidate, policy=policy, policy_name=policy_name, preset=preset))
+            included_item = self._include(candidate, policy=policy, policy_name=policy_name, preset=preset)
+            included.append(included_item)
+            decisions.append(self._decision(candidate, rank_by_memory_id, included=True, reason=included_item.reason))
 
         stats = ContextStats(
             max_tokens=policy.max_tokens,
@@ -118,7 +146,7 @@ class ContextBuilder:
             candidate_count_before_filter=len(all_candidates),
             candidate_count_after_filter=candidate_count_after_filter,
         )
-        return ContextPackage(
+        package = ContextPackage(
             query=query,
             text=_format_context_text(included),
             policy_name=policy_name,
@@ -128,6 +156,8 @@ class ContextBuilder:
             excluded=excluded,
             stats=stats,
         )
+        package._retrieval_diagnostics = decisions
+        return package
 
     def _sort_candidates(self, candidates: list[_Candidate], *, strategy: str) -> list[_Candidate]:
         if strategy == "recency":
@@ -186,7 +216,9 @@ class ContextBuilder:
             reason = f"{reason} for context policy '{label}'"
         if candidate.rerank_reason is not None:
             reason = f"{reason}; {candidate.rerank_reason}"
-        session_reasons = [score_reason for score_reason in candidate.score.reasons if "active session" in score_reason]
+        session_reasons = [
+            score_reason for score_reason in candidate.score.reasons if "session" in score_reason.lower()
+        ]
         if session_reasons:
             reason = f"{reason}; {session_reasons[0]}"
         if policy.include_score_reasons and candidate.score.reasons:
@@ -231,6 +263,26 @@ class ContextBuilder:
             reason=reason,
         )
 
+    def diagnostics(self, package: ContextPackage) -> list[_ContextDecision]:
+        """Return internal retrieval decisions without changing the public context schema."""
+        return [decision for decision in package._retrieval_diagnostics if isinstance(decision, _ContextDecision)]
+
+    def _decision(
+        self,
+        candidate: _Candidate,
+        rank_by_memory_id: dict[str, int],
+        *,
+        included: bool,
+        reason: str,
+    ) -> _ContextDecision:
+        return _ContextDecision(
+            memory=candidate.memory,
+            score=candidate.score,
+            rank=rank_by_memory_id[candidate.memory.id],
+            included=included,
+            reason=reason,
+        )
+
 
 def _format_context_text(included: list[ContextItem]) -> str:
     if not included:
@@ -250,19 +302,3 @@ def _included_layer_reason(layer: MemoryLayer) -> str | None:
     if layer is MemoryLayer.WORKING:
         return "Included because working layer has high retrieval priority"
     return None
-
-
-def _session_adjusted_score(
-    score: MemoryScore,
-    *,
-    memory: Memory,
-    active_session_id: str | None,
-) -> MemoryScore:
-    if active_session_id is None or memory.session_id != active_session_id:
-        return score
-    return score.model_copy(
-        update={
-            "total": min(score.total + 0.1, 1.0),
-            "reasons": [*score.reasons, "Included because memory belongs to active session"],
-        }
-    )

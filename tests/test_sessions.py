@@ -158,6 +158,66 @@ def test_active_session_memories_are_prioritized_in_search() -> None:
     assert any("active session" in reason for reason in results[0].score.reasons)
 
 
+def test_off_session_high_relevance_can_beat_irrelevant_active_session_memory() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    active_session = client.create_session(title="Current work", make_active=True)
+    other_session = client.create_session(title="Previous work", make_active=False)
+    client.add("Current meeting logistics.", session_id=active_session.id, importance=0.8)
+    relevant = client.add("Python memory SDK architecture.", session_id=other_session.id, importance=0.2)
+
+    results = client.search("Python memory SDK")
+
+    assert results[0].memory.id == relevant.id
+
+
+def test_inactive_current_session_memories_do_not_beat_active_relevant_memory() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    current_session = client.create_session(title="Current", make_active=True)
+    other_session = client.create_session(title="Other", make_active=False)
+    archived = Memory(
+        content="Python memory SDK architecture.",
+        status="archived",
+        session_id=current_session.id,
+    )
+    superseded = Memory(
+        content="Python memory SDK architecture.",
+        status="superseded",
+        session_id=current_session.id,
+    )
+    active = Memory(content="Python memory SDK architecture.", session_id=other_session.id)
+    client.store.add(archived)
+    client.store.add(superseded)
+    client.store.add(active)
+
+    results = client.search("Python memory SDK", include_inactive=True)
+
+    assert results[0].memory.id == active.id
+
+
+def test_related_session_continuity_boost_is_explained() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    current_session = client.create_session(title="Current", make_active=True)
+    related_session = client.create_session(title="Python SDK work", make_active=False)
+    client.add("Unrelated current note.", session_id=current_session.id)
+    related = client.add("Python SDK retrieval notes.", session_id=related_session.id)
+
+    results = client.search("Python SDK", current_session_id=current_session.id)
+    related_result = next(result for result in results if result.memory.id == related.id)
+
+    assert "Related session continuity boost applied" in related_result.score.reasons
+
+
+def test_temporally_local_query_receives_stronger_explainable_session_boost() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    current_session = client.create_session(title="Current", make_active=True)
+    current = client.add("Current deployment is green.", session_id=current_session.id)
+
+    results = client.search("What is the current deployment?", current_session_id=current_session.id)
+
+    assert results[0].memory.id == current.id
+    assert "Temporal query boost applied for active session" in results[0].score.reasons
+
+
 def test_context_mentions_active_session_continuity() -> None:
     client = MemoryClient()
     session = client.create_session(title="Active")
