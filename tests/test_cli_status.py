@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from pytest import MonkeyPatch
+from rich.text import Text
 from typer.testing import CliRunner
 
 from mneno.cli.app import app, get_version
@@ -146,7 +147,8 @@ def test_status_missing_workspace_json_is_machine_readable(tmp_path: Path, monke
 
 def test_status_help_lists_json_option() -> None:
     result = runner.invoke(app, ["status", "--help"])
+    output = Text.from_ansi(result.output).plain
 
     assert result.exit_code == 0
-    assert "--json" in result.output
-    assert "machine-readable JSON" in result.output
+    assert "--json" in output
+    assert "machine-readable JSON" in output

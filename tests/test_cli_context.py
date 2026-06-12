@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from pytest import MonkeyPatch
+from rich.text import Text
 from typer.testing import CliRunner
 
 from mneno.cli.app import app
@@ -239,12 +240,13 @@ def test_context_session_degrades_for_older_core_api(tmp_path: Path, monkeypatch
 
 def test_context_help_lists_supported_options() -> None:
     result = runner.invoke(app, ["context", "--help"])
+    output = Text.from_ansi(result.output).plain
 
     assert result.exit_code == 0
-    assert "--budget" in result.output
-    assert "--preset" in result.output
-    assert "--session" in result.output
-    assert "--json" in result.output
-    assert "Include archived" in result.output
-    assert "other inactive" in result.output
-    assert "Show memories" in result.output
+    assert "--budget" in output
+    assert "--preset" in output
+    assert "--session" in output
+    assert "--json" in output
+    assert "Include archived" in output
+    assert "other inactive" in output
+    assert "Show memories" in output

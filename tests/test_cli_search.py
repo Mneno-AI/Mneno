@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from pytest import MonkeyPatch
+from rich.text import Text
 from typer.testing import CliRunner
 
 from mneno.cli.app import app
@@ -206,11 +207,12 @@ def test_search_can_hide_reasons(tmp_path: Path, monkeypatch: MonkeyPatch) -> No
 
 def test_search_help_lists_supported_options() -> None:
     result = runner.invoke(app, ["search", "--help"])
+    output = Text.from_ansi(result.output).plain
 
     assert result.exit_code == 0
-    assert "--limit" in result.output
-    assert "--session" in result.output
-    assert "--json" in result.output
-    assert "Include archived" in result.output
-    assert "other inactive" in result.output
-    assert "Show scoring" in result.output
+    assert "--limit" in output
+    assert "--session" in output
+    assert "--json" in output
+    assert "Include archived" in output
+    assert "other inactive" in output
+    assert "Show scoring" in output

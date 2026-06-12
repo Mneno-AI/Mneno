@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from pytest import MonkeyPatch
+from rich.text import Text
 from typer.testing import CliRunner
 
 from mneno.cli.app import app
@@ -146,10 +147,11 @@ def test_add_keeps_workspace_json_valid(tmp_path: Path, monkeypatch: MonkeyPatch
 
 def test_add_help_lists_supported_options() -> None:
     result = runner.invoke(app, ["add", "--help"])
+    output = Text.from_ansi(result.output).plain
 
     assert result.exit_code == 0
-    assert "--type" in result.output
-    assert "--importance" in result.output
-    assert "--tag" in result.output
-    assert "--session" in result.output
-    assert "--metadata" in result.output
+    assert "--type" in output
+    assert "--importance" in output
+    assert "--tag" in output
+    assert "--session" in output
+    assert "--metadata" in output

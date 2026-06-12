@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from pytest import MonkeyPatch
+from rich.text import Text
 from typer.testing import CliRunner
 
 from mneno.cli.app import app
@@ -142,9 +143,10 @@ def test_recent_empty_workspace_is_safe(tmp_path: Path, monkeypatch: MonkeyPatch
 
 def test_recent_help_lists_supported_options() -> None:
     result = runner.invoke(app, ["recent", "--help"])
+    output = Text.from_ansi(result.output).plain
 
     assert result.exit_code == 0
-    assert "--limit" in result.output
-    assert "--json" in result.output
-    assert "archived memories" in result.output
-    assert "inactive memories" in result.output
+    assert "--limit" in output
+    assert "--json" in output
+    assert "archived memories" in output
+    assert "inactive memories" in output
