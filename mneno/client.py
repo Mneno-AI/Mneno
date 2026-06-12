@@ -726,6 +726,45 @@ class MemoryClient:
             )
             scored.append((memory, score))
 
+        zero_relevance = [] if should_use_reranker else [item for item in scored if item[1].relevance <= 0]
+        relevance_filtered = scored if should_use_reranker else [item for item in scored if item[1].relevance > 0]
+        self._trace_event(
+            trace,
+            event_type="query_relevance_filtering",
+            message=(
+                "Query relevance filtering skipped for reranking"
+                if should_use_reranker
+                else f"Excluded {len(scored) - len(relevance_filtered)} zero-relevance memories"
+            ),
+            data={
+                "applied": not should_use_reranker,
+                "excluded_count": len(scored) - len(relevance_filtered),
+                "candidate_count": len(relevance_filtered),
+            },
+        )
+        for memory, score in zero_relevance:
+            relevance_exclusion_reason = "Excluded because query relevance is zero"
+            self._trace_event(
+                trace,
+                event_type="retrieval_candidate_decision",
+                message=relevance_exclusion_reason,
+                memory_id=memory.id,
+                session_id=memory.session_id,
+                data={
+                    **_memory_trace_identity(memory),
+                    **score_trace_data(
+                        memory,
+                        score,
+                        query=request.query,
+                        current_session_id=active_session_id,
+                        related_session_ids=related_session_ids,
+                    ),
+                    "rank": None,
+                    "included": False,
+                    "exclusion_reason": relevance_exclusion_reason,
+                },
+            )
+        scored = relevance_filtered
         scored.sort(
             key=lambda item: (
                 item[1].total,

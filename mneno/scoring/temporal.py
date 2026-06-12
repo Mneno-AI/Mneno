@@ -31,6 +31,7 @@ STOPWORDS = {
     "did",
     "does",
     "how",
+    "i",
     "it",
     "that",
     "this",
@@ -221,7 +222,8 @@ def _score_reasons(
     embedding_provider_name: str | None,
 ) -> list[str]:
     reasons = [f"Matched query term: {term}" for term in lexical_match.exact_terms]
-    normalized_only = sorted(set(lexical_match.matched_terms) - set(lexical_match.exact_terms))
+    normalized_exact_terms = {_normalize_token(term) for term in lexical_match.exact_terms}
+    normalized_only = sorted(set(lexical_match.matched_terms) - normalized_exact_terms)
     reasons.extend(f"Normalized query term match: {term}" for term in normalized_only)
     if len(lexical_match.matched_terms) > 1:
         reasons.append(f"Multi-token query overlap: {lexical_match.token_overlap:.2f}")

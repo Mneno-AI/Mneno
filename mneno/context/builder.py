@@ -110,6 +110,17 @@ class ContextBuilder:
                 decisions.append(self._decision(candidate, rank_by_memory_id, included=False, reason=reason))
                 continue
 
+            if (
+                policy.strategy == "score"
+                and self.reranker_provider is None
+                and candidate.score.relevance <= 0
+                and not is_preserved
+            ):
+                reason = "Excluded because query relevance is zero"
+                excluded.append(self._exclude(candidate, reason))
+                decisions.append(self._decision(candidate, rank_by_memory_id, included=False, reason=reason))
+                continue
+
             candidate_count_after_filter += 1
             if policy.max_items is not None and len(included) >= policy.max_items:
                 reason = "Excluded because max_items reached"

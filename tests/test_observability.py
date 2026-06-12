@@ -130,7 +130,7 @@ def test_search_trace_includes_score_breakdown_identity_rank_and_decision() -> N
     assert any(
         event.memory_id == excluded.id
         and not event.data["included"]
-        and "exceeds limit" in event.data["exclusion_reason"]
+        and "query relevance is zero" in event.data["exclusion_reason"]
         for event in decisions
     )
 
@@ -181,7 +181,7 @@ def test_context_trace_includes_rank_score_breakdown_and_exclusion_reason() -> N
     assert included_event.data["included"] is True
     assert included_event.data["score_reasons"]
     assert excluded_event.data["included"] is False
-    assert excluded_event.data["exclusion_reason"] == "Excluded because budget exhausted"
+    assert excluded_event.data["exclusion_reason"] == "Excluded because query relevance is zero"
 
 
 def test_context_trace_records_duplicate_and_budget_exclusions() -> None:

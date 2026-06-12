@@ -15,16 +15,89 @@ developers can see what memory was kept, merged, discarded, and why.
 ## Quickstart
 
 ```bash
-pip install --pre mneno
+pip install mneno
 ```
 
-The current alpha release is `0.3.0a3`.
+The current release is `0.4.0`.
 
 For local development:
 
 ```bash
 scripts/setup_dev.sh
 ```
+
+## Mneno CLI
+
+Mneno includes a local-first command-line interface for creating and inspecting a project workspace:
+
+```bash
+mneno init
+mneno add "LOCOMO exposed ranking issues" --tag locomo
+mneno recent
+mneno search "LOCOMO"
+mneno context "continue development"
+```
+
+`mneno init` creates a `.mneno/` directory in the current project with versioned configuration, memory, and session
+JSON files. Running it again preserves the existing workspace and its data. Commands discover the nearest workspace by
+searching the current directory and then each parent directory, similar to Git.
+
+`mneno add` uses the real `MemoryClient` to store memories locally in `.mneno/memories.json`. `mneno search` reads that
+same local JSON workspace and ranks results with Mneno Core's explainable scoring:
+
+```text
+Rank   Score   Type       Layer      Status   Memory
+   1   0.842   semantic   semantic   active   LOCOMO exposed ranking issues
+```
+
+`mneno recent` lists the latest active memories with lifecycle metadata and tags. Use `--json` for scripts or
+`--include-archived` and `--include-inactive` when inspecting retained history.
+
+`mneno context` builds a budgeted, explainable context package from the same local JSON workspace:
+
+```text
+Context
+-------
+Relevant memories:
+- LOCOMO exposed ranking issues
+
+Stats
+-----
+Used tokens: 4 / 1200
+Included: 1
+Excluded: 0
+```
+
+The CLI requires no database, cloud account, or external service.
+
+### Demo Workflow
+
+```bash
+mneno init
+mneno add "Mneno Core found ranking issues in LOCOMO." --tag locomo --tag retrieval --importance 0.8
+mneno add "Candidate coverage is around 80%, so candidate generation is not the main bottleneck." \
+  --tag locomo --tag diagnosis --importance 0.9
+mneno add "The next priority is improving ranking and session-aware retrieval." \
+  --tag roadmap --tag retrieval --tag continue --tag development --importance 0.9
+mneno recent
+mneno search "LOCOMO ranking"
+mneno context "continue development"
+mneno status
+```
+
+This workflow is entirely local. It stores data under `.mneno/`, uses the same Mneno Core `MemoryClient` as the Python
+SDK, and requires no MCP server, API key, external service, or token spend.
+
+### Cristian Demo Script
+
+Run the complete workflow in an isolated temporary workspace:
+
+```bash
+scripts/demo_cli.sh
+```
+
+The script never modifies the current project workspace. It prints and retains the temporary demo directory for
+inspection after the run.
 
 ## Example Usage
 
@@ -376,11 +449,11 @@ Mneno Bench can implement `BenchmarkAdapter`, run SDK evaluation wrappers, colle
 persist these envelopes for comparison across datasets and runtime versions. External LOCOMO, LongMemEval, and BEAM
 adapters remain outside the core SDK.
 
-Alpha releases are published to PyPI from version tags through GitHub Actions and PyPI Trusted Publishing. Install the
-latest pre-release with:
+Releases are published to PyPI from version tags through GitHub Actions and PyPI Trusted Publishing. Install the
+latest release with:
 
 ```bash
-pip install --pre mneno
+pip install mneno
 ```
 
 ## Provider Architecture
@@ -523,9 +596,10 @@ The LLM may only improve merged memory wording for groups already selected by th
 
 ## Next Milestone
 
-Mneno Core `0.3.0a1` includes the local runtime, persistence, providers, lifecycle management, sessions, tracing, and
-evaluation infrastructure. The next milestone is the separate Mneno Bench distribution with LOCOMO, LongMemEval, and
-BEAM adapters. CLI, MCP, and editor integrations remain distribution layers on top of the core SDK.
+Mneno Core includes the local runtime, persistence, providers, lifecycle management, sessions, tracing, and evaluation
+infrastructure. The CLI now provides local workspace initialization, memory addition, ranked search, explainable
+context building, recent-memory inspection, and status reporting. Further lifecycle management and other integrations
+remain future work.
 
 ## License
 

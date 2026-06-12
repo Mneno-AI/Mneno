@@ -64,8 +64,20 @@ def test_score_ordering_prefers_relevant_important_memory() -> None:
 
     results = client.search("Python SDK Mneno", limit=2)
 
-    assert [result.memory.id for result in results][0] == relevant.id
-    assert results[0].score.total >= results[1].score.total
+    assert [result.memory.id for result in results] == [relevant.id]
+
+
+def test_search_excludes_zero_relevance_memories_without_recording_access() -> None:
+    client = MemoryClient()
+    unrelated = client.add("Yesterday I ate chocolate.")
+
+    results = client.search("pizza")
+    stored = client.get(unrelated.id)
+
+    assert results == []
+    assert stored is not None
+    assert stored.access_count == 0
+    assert stored.last_accessed_at is None
 
 
 def test_exact_query_match_receives_clear_boost_and_reason() -> None:
@@ -127,6 +139,13 @@ def test_stopwords_do_not_dilute_query_relevance() -> None:
     without_stopwords = calculate_memory_score(Memory(content="Python is preferred."), query="Python")
 
     assert with_stopwords.relevance == without_stopwords.relevance
+
+
+def test_first_person_pronoun_is_not_a_query_match() -> None:
+    score = calculate_memory_score(Memory(content="I want to become a skilled developer."), query="I hate")
+
+    assert score.relevance == 0
+    assert not any("query term: i" in reason for reason in score.reasons)
 
 
 def test_short_phrase_overlap_beats_scattered_terms_and_keyword_stuffing() -> None:
