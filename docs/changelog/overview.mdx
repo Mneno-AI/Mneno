@@ -3,6 +3,24 @@ title: "Changelog"
 description: "Updates and improvements to Mneno."
 ---
 
+<Update label="June 12, 2026" description="v0.4.0">
+
+### Mneno CLI
+
+- Added the local-first `mneno` CLI with workspace initialization, status inspection, memory creation, ranked search,
+  context building, and recent-memory commands.
+- Added JSON output for automation and stable workspace persistence through `.mneno/memories.json`.
+- Added a safe, temporary-directory demo workflow in `scripts/demo_cli.sh`.
+
+### Retrieval quality
+
+- Search now excludes candidates with no query relevance from deterministic results, while preserving optional
+  reranker behavior.
+- Context building uses the same relevance boundary so unrelated memories are not included solely because of
+  recency or layer boosts.
+
+</Update>
+
 <Update label="June 11, 2026" description="v0.3.0a3">
 
 ### Bug fixes

@@ -51,7 +51,20 @@ def test_tight_budget_preserves_highest_relevance_evidence() -> None:
 
     assert [item.memory_id for item in context.included] == [expected.id]
     excluded = next(item for item in context.excluded if item.memory_id == lower_value.id)
-    assert excluded.reason == "Excluded because budget exhausted"
+    assert excluded.reason == "Excluded because query relevance is zero"
+
+
+def test_score_based_context_excludes_fresh_unrelated_memories() -> None:
+    client = MemoryClient()
+    relevant = client.add("Yesterday I ate chocolate.")
+    unrelated = client.add("I want to become a skilled developer.")
+    other_unrelated = client.add("Developing a project presentation.")
+
+    context = client.build_context("chocolate", preset="balanced")
+
+    assert [item.memory_id for item in context.included] == [relevant.id]
+    assert {item.memory_id for item in context.excluded} == {unrelated.id, other_unrelated.id}
+    assert all(item.reason == "Excluded because query relevance is zero" for item in context.excluded)
 
 
 def test_duplicate_suppression_keeps_best_scored_duplicate() -> None:
