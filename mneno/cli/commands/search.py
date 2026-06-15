@@ -14,6 +14,7 @@ from rich.table import Table
 
 from mneno import MemoryClient
 from mneno.cli.output import console, error, warning
+from mneno.cli.validation import reject_blank
 from mneno.cli.workspace import WORKSPACE_NOT_FOUND_MESSAGE, find_workspace, get_workspace_client
 
 
@@ -60,6 +61,8 @@ def search_command(
     ] = True,
 ) -> None:
     """Search local memories using Mneno Core scoring."""
+    reject_blank(query, message="Query must not be empty.")
+
     workspace_path = find_workspace()
     if workspace_path is None:
         if json_output:

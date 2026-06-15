@@ -54,6 +54,17 @@ def test_cli_init_creates_workspace_and_is_idempotent(tmp_path: Path, monkeypatc
     assert "Workspace already exists" in second.output
 
 
+def test_cli_init_reports_regular_file_workspace_collision(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".mneno").write_text("not a directory", encoding="utf-8")
+
+    result = runner.invoke(app, ["init"])
+
+    assert result.exit_code == 1
+    assert "Cannot initialize workspace: .mneno exists and is not a directory." in result.output
+    assert "Traceback" not in result.output
+
+
 def test_cli_status_shows_empty_workspace(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     runner.invoke(app, ["init"])

@@ -8,7 +8,10 @@ from rich.text import Text
 from typer.testing import CliRunner
 
 from mneno.cli.app import app
+from mneno.cli.workspace import get_workspace_client
 from mneno.context import ContextPolicy
+from mneno.hierarchy import MemoryLayer
+from mneno.models import MemoryStatus
 
 runner = CliRunner()
 
@@ -49,6 +52,26 @@ def test_context_works_after_add(tmp_path: Path, monkeypatch: MonkeyPatch) -> No
     assert "Included: 1" in result.output
     assert "Included because:" in result.output
     assert memory_id in result.output
+
+
+def test_context_rejects_empty_query(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["context", ""])
+
+    assert result.exit_code == 1
+    assert "Query must not be empty." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_context_rejects_whitespace_query(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["context", "   "])
+
+    assert result.exit_code == 1
+    assert "Query must not be empty." in result.output
+    assert "Traceback" not in result.output
 
 
 def test_context_respects_budget(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -96,6 +119,31 @@ def test_context_json_output_has_stable_shape(tmp_path: Path, monkeypatch: Monke
     }
     assert "context preset 'balanced'" in payload["included"][0]["reason"]
     assert "context policy 'custom'" not in payload["included"][0]["reason"]
+
+
+def test_context_include_archived_does_not_include_superseded(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+    client = get_workspace_client(tmp_path / ".mneno")
+    active = client.add("Active Python context note")
+    archived = client.add("Archived Python context note")
+    superseded = client.add("Superseded Python context note")
+    client.store.update(archived.model_copy(update={"status": MemoryStatus.ARCHIVED, "layer": MemoryLayer.ARCHIVED}))
+    client.store.update(superseded.model_copy(update={"status": MemoryStatus.SUPERSEDED}))
+
+    default_result = runner.invoke(app, ["context", "Python", "--budget", "100", "--json"])
+    archived_result = runner.invoke(app, ["context", "Python", "--budget", "100", "--include-archived", "--json"])
+    inactive_result = runner.invoke(app, ["context", "Python", "--budget", "100", "--include-inactive", "--json"])
+    default_payload = json.loads(default_result.output)
+    archived_payload = json.loads(archived_result.output)
+    inactive_payload = json.loads(inactive_result.output)
+
+    assert default_result.exit_code == 0
+    assert {item["memory_id"] for item in default_payload["included"]} == {active.id}
+    assert archived_result.exit_code == 0
+    assert {item["memory_id"] for item in archived_payload["included"]} == {active.id, archived.id}
+    assert superseded.id not in {item["memory_id"] for item in archived_payload["included"]}
+    assert inactive_result.exit_code == 0
+    assert {item["memory_id"] for item in inactive_payload["included"]} == {active.id, archived.id, superseded.id}
 
 
 def test_context_show_excluded_displays_reasons(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:

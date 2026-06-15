@@ -51,7 +51,10 @@ Rank   Score   Type       Layer      Status   Memory
 ```
 
 `mneno recent` lists the latest active memories with lifecycle metadata and tags. Use `--json` for scripts or
-`--include-archived` and `--include-inactive` when inspecting retained history.
+`--include-archived` and `--include-inactive` when inspecting retained history. Empty memory text and empty search or
+context queries are rejected before storage or retrieval runs. By default, CLI retrieval commands show active memories
+only; `--include-archived` shows active plus archived memories, while `--include-inactive` also includes superseded and
+other inactive memories.
 
 `mneno context` builds a budgeted, explainable context package from the same local JSON workspace:
 

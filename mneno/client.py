@@ -611,15 +611,24 @@ class MemoryClient:
             message=f"Loaded {all_memory_count} memories",
             data={"memory_count": all_memory_count},
         )
-        searchable_memories = self._searchable_memories(include_inactive=include_inactive or include_archived)
+        searchable_memories = self._searchable_memories(
+            include_inactive=include_inactive,
+            include_archived=include_archived,
+        )
+        inactive_filter_skipped = include_inactive
+        inactive_filter_relaxed = include_archived and not include_inactive
         self._trace_event(
             trace,
             event_type="inactive_filtering_applied",
             message="Inactive memory filtering skipped"
-            if include_inactive or include_archived
+            if inactive_filter_skipped
+            else "Archived memories included; superseded memories excluded"
+            if inactive_filter_relaxed
             else "Archived and superseded memories excluded",
             data={
-                "applied": not (include_inactive or include_archived),
+                "applied": not inactive_filter_skipped,
+                "include_archived": include_archived,
+                "include_inactive": include_inactive,
                 "excluded_count": all_memory_count - len(searchable_memories),
             },
         )
@@ -1271,7 +1280,10 @@ class MemoryClient:
                 "available_tokens": context_policy.available_tokens,
             },
         )
-        memories = self._searchable_memories(include_inactive=include_inactive or include_archived)
+        memories = self._searchable_memories(
+            include_inactive=include_inactive,
+            include_archived=include_archived,
+        )
         active_session_id = current_session_id or self.active_session_id
         related_session_ids = self._related_session_ids(query, current_session_id=active_session_id)
         self._trace_event(
@@ -1374,9 +1386,11 @@ class MemoryClient:
             and memory.layer is not MemoryLayer.ARCHIVED
         ]
 
-    def _searchable_memories(self, *, include_inactive: bool) -> builtins.list[Memory]:
+    def _searchable_memories(self, *, include_inactive: bool, include_archived: bool = False) -> builtins.list[Memory]:
         if include_inactive:
             return self.store.list()
+        if include_archived:
+            return [memory for memory in self.store.list() if memory.status is not MemoryStatus.SUPERSEDED]
         return [
             memory
             for memory in self.store.list()

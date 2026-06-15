@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from mneno import MemoryClient
 from mneno.cli.output import console, error, warning
+from mneno.cli.validation import reject_blank
 from mneno.cli.workspace import WORKSPACE_NOT_FOUND_MESSAGE, find_workspace, get_workspace_client
 from mneno.context import ContextPolicy, ContextPreset, get_context_policy
 
@@ -84,6 +85,8 @@ def context_command(
     ] = False,
 ) -> None:
     """Build context using Mneno Core and local JSON storage."""
+    reject_blank(query, message="Query must not be empty.")
+
     workspace_path = find_workspace()
     if workspace_path is None:
         if json_output:
