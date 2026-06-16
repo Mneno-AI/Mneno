@@ -136,6 +136,21 @@ def test_status_json_output_has_stable_shape(tmp_path: Path, monkeypatch: Monkey
     assert payload["version"] == {"workspace": 1, "mneno": get_version()}
 
 
+def test_status_counts_cli_conflicts_from_dogfooding_regression(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+    runner.invoke(app, ["add", "Cristian prefers a CLI over an MCP for the first demo."])
+    runner.invoke(app, ["add", "Misleading note: Cristian definitely wants an MCP instead of a CLI."])
+
+    result = runner.invoke(app, ["status", "--json"])
+    payload = json.loads(result.output)
+
+    assert result.exit_code == 0
+    assert payload["counts"]["memories"] == 2
+    assert payload["counts"]["active"] == 0
+    assert payload["counts"]["conflicted"] == 2
+    assert payload["counts"]["superseded"] == 0
+
+
 def test_status_missing_workspace_json_is_machine_readable(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 

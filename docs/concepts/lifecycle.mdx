@@ -14,7 +14,7 @@ Memories use four lifecycle statuses:
 - `archived`: retained but excluded from default retrieval
 - `conflicted`: linked to another memory with an unresolved contradiction
 
-Search and context building exclude archived and superseded memories by default. Use explicit inactive-inclusion options only when you need historical records.
+Search and context building exclude archived and superseded memories by default. Conflicted memories remain visible by default with conflict reasons, so contradictory facts are not silently hidden. Use explicit inactive-inclusion options only when you need historical records.
 
 ## Detect conflicts while adding
 
@@ -37,7 +37,12 @@ for report in result.conflict_reports:
 print(result.resolution_actions)
 ```
 
-Mneno never deletes memories during conflict resolution. Supersession links the old memory through `superseded_by`, while contradictions use `conflicts_with` links.
+Mneno never deletes memories during conflict resolution. Supersession links the old memory through `superseded_by`, while contradictions use `conflicts_with` links. A contradiction is not an update unless the new memory contains an explicit update signal such as `now`, `changed to`, `updated to`, `no longer`, `from now on`, `correction:`, `actually`, `previously ... now ...`, or `supersedes`.
+
+Examples:
+
+- `User prefers Python 3.10.` plus `User now prefers Python 3.11.` creates supersession.
+- `User prefers CLI.` plus `User wants MCP.` creates a conflict, not silent supersession.
 
 ## Detect without mutating storage
 

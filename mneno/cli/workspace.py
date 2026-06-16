@@ -68,6 +68,8 @@ def initialize_workspace(directory: str | Path | None = None) -> tuple[Workspace
     """Create missing workspace files in a directory without replacing existing files."""
     root = (Path.cwd() if directory is None else Path(directory)).resolve()
     workspace = Workspace(root / WORKSPACE_DIRECTORY)
+    if workspace.path.exists() and not workspace.path.is_dir():
+        raise ValueError("Cannot initialize workspace: .mneno exists and is not a directory.")
     created = not workspace.path.exists()
     workspace.path.mkdir(parents=True, exist_ok=True)
 

@@ -242,6 +242,9 @@ def _score_reasons(
         reasons.append("Archived memory penalty applied")
     elif memory.status is MemoryStatus.SUPERSEDED:
         reasons.append("Superseded memory penalty applied")
+    conflict_reason = _conflict_reason(memory)
+    if conflict_reason is not None:
+        reasons.append(conflict_reason)
     if memory.importance >= 0.75:
         reasons.append("High importance memory")
     elif memory.importance <= 0.25:
@@ -271,6 +274,15 @@ def _layer_reason(layer: MemoryLayer) -> str | None:
     if layer is MemoryLayer.SHORT_TERM:
         return "Short-term layer retrieval penalty applied"
     return None
+
+
+def _conflict_reason(memory: Memory) -> str | None:
+    if memory.status is not MemoryStatus.CONFLICTED and not memory.conflicts_with:
+        return None
+    count = len(memory.conflicts_with)
+    if count == 1:
+        return "Memory is marked conflicted with 1 related memory."
+    return f"Memory is marked conflicted with {count} related memories."
 
 
 def _tokens(text: str) -> list[str]:

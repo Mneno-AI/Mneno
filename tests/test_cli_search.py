@@ -8,6 +8,9 @@ from rich.text import Text
 from typer.testing import CliRunner
 
 from mneno.cli.app import app
+from mneno.cli.workspace import get_workspace_client
+from mneno.hierarchy import MemoryLayer
+from mneno.models import MemoryStatus
 
 runner = CliRunner()
 
@@ -44,6 +47,26 @@ def test_search_returns_added_memory(tmp_path: Path, monkeypatch: MonkeyPatch) -
     assert "LOCOMO exposed ranking issues" in result.output
     assert "semantic" in result.output
     assert "active" in result.output
+
+
+def test_search_rejects_empty_query(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["search", ""])
+
+    assert result.exit_code == 1
+    assert "Query must not be empty." in result.output
+    assert "Traceback" not in result.output
+
+
+def test_search_rejects_whitespace_query(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["search", "   "])
+
+    assert result.exit_code == 1
+    assert "Query must not be empty." in result.output
+    assert "Traceback" not in result.output
 
 
 def test_search_respects_limit(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -119,6 +142,31 @@ def test_search_json_output_has_stable_shape(tmp_path: Path, monkeypatch: Monkey
     assert payload[0]["tags"] == ["locomo"]
     assert isinstance(payload[0]["score"], float)
     assert payload[0]["reasons"]
+
+
+def test_search_include_archived_does_not_include_superseded(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+    client = get_workspace_client(tmp_path / ".mneno")
+    active = client.add("Active Python note")
+    archived = client.add("Archived Python note")
+    superseded = client.add("Superseded Python note")
+    client.store.update(archived.model_copy(update={"status": MemoryStatus.ARCHIVED, "layer": MemoryLayer.ARCHIVED}))
+    client.store.update(superseded.model_copy(update={"status": MemoryStatus.SUPERSEDED}))
+
+    default_result = runner.invoke(app, ["search", "Python", "--json"])
+    archived_result = runner.invoke(app, ["search", "Python", "--include-archived", "--json"])
+    inactive_result = runner.invoke(app, ["search", "Python", "--include-inactive", "--json"])
+    default_payload = json.loads(default_result.output)
+    archived_payload = json.loads(archived_result.output)
+    inactive_payload = json.loads(inactive_result.output)
+
+    assert default_result.exit_code == 0
+    assert {item["memory_id"] for item in default_payload} == {active.id}
+    assert archived_result.exit_code == 0
+    assert {item["memory_id"] for item in archived_payload} == {active.id, archived.id}
+    assert superseded.id not in {item["memory_id"] for item in archived_payload}
+    assert inactive_result.exit_code == 0
+    assert {item["memory_id"] for item in inactive_payload} == {active.id, archived.id, superseded.id}
 
 
 def test_search_include_flags_pass_through(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -216,3 +264,35 @@ def test_search_help_lists_supported_options() -> None:
     assert "Include archived" in output
     assert "other inactive" in output
     assert "Show scoring" in output
+
+
+def test_search_dogfooding_conflict_regression_keeps_original_preference(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    initialize(tmp_path, monkeypatch)
+    add_memory("Cristian prefers a CLI over an MCP for the first demo.", "--tag", "cristian", "--tag", "cli")
+    add_memory(
+        "Misleading note: Cristian definitely wants an MCP instead of a CLI.", "--tag", "misleading", "--tag", "mcp"
+    )
+
+    result = runner.invoke(app, ["search", "CLI over MCP", "--json"])
+    payload = json.loads(result.output)
+
+    assert result.exit_code == 0
+    original = next(
+        item for item in payload if item["content"] == "Cristian prefers a CLI over an MCP for the first demo."
+    )
+    assert original["status"] == "conflicted"
+    assert any("marked conflicted with 1 related memory" in reason for reason in original["reasons"])
+
+
+def test_search_conflicted_memory_shows_status_and_reason(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+    add_memory("User wants MCP first.", "--type", "preference")
+    add_memory("User does not want MCP first.", "--type", "preference")
+
+    result = runner.invoke(app, ["search", "MCP first"])
+
+    assert result.exit_code == 0
+    assert "conflicted" in result.output
+    assert "Memory is marked conflicted with 1 related memory." in result.output

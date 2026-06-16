@@ -43,11 +43,7 @@ class ConflictResolver:
             if existing is None:
                 continue
 
-            if report.conflict_type in {
-                ConflictType.SUPERSESSION,
-                ConflictType.PREFERENCE_CHANGE,
-                ConflictType.OPERATIONAL_CHANGE,
-            }:
+            if report.conflict_type in {ConflictType.SUPERSESSION, ConflictType.OPERATIONAL_CHANGE}:
                 should_supersede = (
                     active_policy.auto_supersede_preferences or report.conflict_type is ConflictType.OPERATIONAL_CHANGE
                 )
@@ -58,6 +54,19 @@ class ConflictResolver:
                     existing = self._supersede_existing(existing, current_new, report)
                     current_new = self._audit_new(current_new, report, event_type="superseded_existing")
                     actions.append(f"superseded_existing:{existing.id}:by:{current_new.id}")
+
+            elif report.conflict_type is ConflictType.PREFERENCE_CHANGE:
+                if report.suggested_action.value == "supersede_existing" and active_policy.auto_supersede_preferences:
+                    existing = self._supersede_existing(existing, current_new, report)
+                    current_new = self._audit_new(current_new, report, event_type="superseded_existing")
+                    actions.append(f"superseded_existing:{existing.id}:by:{current_new.id}")
+                elif active_policy.mark_conflicts:
+                    existing = self._mark_conflicted(existing, current_new, report)
+                    current_new = self._mark_conflicted(current_new, existing, report)
+                    actions.append(f"marked_conflicted:{existing.id}:{current_new.id}")
+                else:
+                    current_new, existing = self._audit_only(current_new, existing, report)
+                    actions.append(f"kept_both:{existing.id}:{current_new.id}")
 
             elif report.conflict_type is ConflictType.CONTRADICTION:
                 if active_policy.mark_conflicts:

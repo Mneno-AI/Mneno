@@ -48,6 +48,33 @@ def test_add_creates_memory_in_workspace_storage(tmp_path: Path, monkeypatch: Mo
     assert memories[0].content == "LOCOMO exposed ranking issues"
 
 
+def test_add_rejects_empty_memory_text(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    storage_path = initialize(tmp_path, monkeypatch)
+
+    result = runner.invoke(app, ["add", ""])
+
+    assert result.exit_code == 1
+    assert "Memory text must not be empty." in result.output
+    assert "Traceback" not in result.output
+    assert JSONFileStorage(storage_path).list() == []
+
+
+def test_add_rejects_whitespace_memory_text_without_mutating_workspace(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    storage_path = initialize(tmp_path, monkeypatch)
+    before = storage_path.read_text(encoding="utf-8")
+
+    result = runner.invoke(app, ["add", "   "])
+
+    assert result.exit_code == 1
+    assert "Memory text must not be empty." in result.output
+    assert "Traceback" not in result.output
+    assert storage_path.read_text(encoding="utf-8") == before
+    assert JSONFileStorage(storage_path).list() == []
+
+
 def test_add_supports_memory_type(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     storage_path = initialize(tmp_path, monkeypatch)
 

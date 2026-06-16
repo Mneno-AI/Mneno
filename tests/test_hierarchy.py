@@ -118,13 +118,19 @@ def test_archived_memories_excluded_by_default_and_included_when_requested() -> 
     client = MemoryClient()
     archived = client.add("Archived Python note.", layer="archived")
     active = client.add("Active Python note.", layer="semantic")
+    superseded = client.add("Superseded Python note.", layer="semantic")
+    client.store.update(superseded.model_copy(update={"status": MemoryStatus.SUPERSEDED}))
 
     default_ids = {result.memory.id for result in client.search("Python", limit=10)}
     archived_ids = {result.memory.id for result in client.search("Python", limit=10, include_archived=True)}
+    inactive_ids = {result.memory.id for result in client.search("Python", limit=10, include_inactive=True)}
 
     assert active.id in default_ids
     assert archived.id not in default_ids
+    assert superseded.id not in default_ids
     assert archived.id in archived_ids
+    assert superseded.id not in archived_ids
+    assert superseded.id in inactive_ids
 
 
 def test_layer_weighting_affects_ranking() -> None:
@@ -149,12 +155,17 @@ def test_build_context_excludes_archived_by_default_and_includes_when_requested(
     client = MemoryClient()
     archived = client.add("Archived Python note.", layer="archived")
     active = client.add("Active Python note.", layer="semantic")
+    superseded = client.add("Superseded Python note.", layer="semantic")
+    client.store.update(superseded.model_copy(update={"status": MemoryStatus.SUPERSEDED}))
 
     default = client.build_context("Python", budget=50)
     with_archived = client.build_context("Python", budget=50, include_archived=True)
+    with_inactive = client.build_context("Python", budget=50, include_inactive=True)
 
     assert {item.memory_id for item in default.included} == {active.id}
     assert {archived.id, active.id}.issubset({item.memory_id for item in with_archived.included})
+    assert superseded.id not in {item.memory_id for item in with_archived.included}
+    assert superseded.id in {item.memory_id for item in with_inactive.included}
 
 
 def test_json_storage_preserves_layers(tmp_path: Path) -> None:

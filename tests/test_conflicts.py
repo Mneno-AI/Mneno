@@ -35,7 +35,7 @@ def test_detector_detects_preference_change() -> None:
 
     reports = ConflictDetector().detect(new, [existing])
 
-    assert reports[0].conflict_type is ConflictType.PREFERENCE_CHANGE
+    assert reports[0].conflict_type is ConflictType.CONTRADICTION
     assert reports[0].reason
     assert reports[0].evidence
 
@@ -58,6 +58,22 @@ def test_detector_detects_now_prefers_supersession() -> None:
 
     assert reports[0].conflict_type is ConflictType.SUPERSESSION
     assert reports[0].suggested_action.value == "supersede_existing"
+
+
+def test_detector_treats_instead_of_as_contradiction_without_update_signal() -> None:
+    existing = Memory(
+        content="Cristian prefers a CLI over an MCP for the first demo.", memory_type=MemoryType.PREFERENCE
+    )
+    new = Memory(
+        content="Misleading note: Cristian definitely wants an MCP instead of a CLI.",
+        memory_type=MemoryType.PREFERENCE,
+    )
+
+    reports = ConflictDetector().detect(new, [existing])
+
+    assert reports[0].conflict_type is ConflictType.CONTRADICTION
+    assert reports[0].suggested_action.value == "mark_conflicted"
+    assert "without explicit supersession signal" in reports[0].reason
 
 
 def test_detector_detects_operational_change() -> None:
@@ -87,6 +103,7 @@ def test_resolver_supersession_marks_old_memory_superseded() -> None:
     assert updated.status is MemoryStatus.SUPERSEDED
     assert updated.superseded_by == new.id
     assert updated.audit
+    assert "explicit update signal" in updated.audit[-1].reason
     assert result.new_memory.audit
     assert result.actions
 
@@ -103,6 +120,7 @@ def test_resolver_contradiction_marks_conflicts_with() -> None:
     assert result.new_memory.status is MemoryStatus.CONFLICTED
     assert new.id in updated.conflicts_with
     assert existing.id in result.new_memory.conflicts_with
+    assert "without explicit supersession signal" in updated.audit[-1].reason
 
 
 def test_resolver_duplicate_does_not_delete_or_archive_by_default() -> None:
@@ -166,6 +184,58 @@ def test_client_updated_preference_supersedes_old_preference() -> None:
     assert stored_old.superseded_by == new.id
 
 
+def test_client_contradictory_preference_without_update_signal_marks_conflicted() -> None:
+    client = MemoryClient()
+    old = client.add("Cristian prefers a CLI over an MCP for the first demo.", memory_type="preference")
+    new = client.add("Misleading note: Cristian definitely wants an MCP instead of a CLI.", memory_type="preference")
+
+    stored_old = client.get(old.id)
+    stored_new = client.get(new.id)
+
+    assert stored_old is not None
+    assert stored_new is not None
+    assert stored_old.status is MemoryStatus.CONFLICTED
+    assert stored_new.status is MemoryStatus.CONFLICTED
+    assert stored_old.superseded_by is None
+    assert stored_new.superseded_by is None
+    assert stored_new.id in stored_old.conflicts_with
+    assert stored_old.id in stored_new.conflicts_with
+    assert "without explicit supersession signal" in stored_old.audit[-1].reason
+
+
+def test_client_negation_without_update_signal_marks_conflicted() -> None:
+    client = MemoryClient()
+    old = client.add("User wants MCP first.", memory_type="preference")
+    new = client.add("User does not want MCP first.", memory_type="preference")
+
+    stored_old = client.get(old.id)
+    stored_new = client.get(new.id)
+
+    assert stored_old is not None
+    assert stored_new is not None
+    assert stored_old.status is MemoryStatus.CONFLICTED
+    assert stored_new.status is MemoryStatus.CONFLICTED
+    assert stored_old.superseded_by is None
+    assert stored_new.superseded_by is None
+    assert stored_new.id in stored_old.conflicts_with
+    assert stored_old.id in stored_new.conflicts_with
+
+
+def test_client_negation_with_explicit_update_signal_supersedes() -> None:
+    client = MemoryClient()
+    old = client.add("User wants MCP first.", memory_type="preference")
+    new = client.add("User no longer wants MCP first.", memory_type="preference")
+
+    stored_old = client.get(old.id)
+    stored_new = client.get(new.id)
+
+    assert stored_old is not None
+    assert stored_new is not None
+    assert stored_old.status is MemoryStatus.SUPERSEDED
+    assert stored_old.superseded_by == stored_new.id
+    assert stored_new.status is MemoryStatus.ACTIVE
+
+
 def test_client_detect_conflicts_accepts_content_string() -> None:
     client = MemoryClient()
     client.add("User prefers Python 3.10.", memory_type="preference")
@@ -199,6 +269,20 @@ def test_search_excludes_superseded_by_default_and_include_inactive_restores_it(
     assert {old.id, new.id}.issubset(inactive_ids)
 
 
+def test_search_includes_conflicted_memories_by_default_with_reasons() -> None:
+    client = MemoryClient()
+    old = client.add("Cristian prefers a CLI over an MCP for the first demo.", memory_type="preference")
+    new = client.add("Misleading note: Cristian definitely wants an MCP instead of a CLI.", memory_type="preference")
+
+    results = client.search("CLI over MCP", limit=10)
+    result_by_id = {result.memory.id: result for result in results}
+
+    assert old.id in result_by_id
+    assert new.id in result_by_id
+    assert result_by_id[old.id].memory.status is MemoryStatus.CONFLICTED
+    assert any("marked conflicted with 1 related memory" in reason for reason in result_by_id[old.id].score.reasons)
+
+
 def test_build_context_excludes_archived_and_superseded_by_default() -> None:
     client = MemoryClient()
     active = client.add("User now prefers Python 3.11.", memory_type="preference", importance=0.8)
@@ -208,6 +292,19 @@ def test_build_context_excludes_archived_and_superseded_by_default() -> None:
     context = client.build_context("Python", budget=50)
 
     assert [item.memory_id for item in context.included] == [active.id]
+
+
+def test_build_context_includes_conflicted_memories_by_default_with_reasons() -> None:
+    client = MemoryClient()
+    old = client.add("Cristian prefers a CLI over an MCP for the first demo.", memory_type="preference")
+    new = client.add("Misleading note: Cristian definitely wants an MCP instead of a CLI.", memory_type="preference")
+
+    context = client.build_context("should we use CLI or MCP?", budget=80)
+    item_by_id = {item.memory_id: item for item in context.included}
+
+    assert old.id in item_by_id
+    assert new.id in item_by_id
+    assert "marked conflicted with 1 related memory" in item_by_id[old.id].reason
 
 
 def test_build_context_include_inactive_includes_inactive_memories() -> None:

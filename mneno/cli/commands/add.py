@@ -8,6 +8,7 @@ import typer
 from pydantic import ValidationError
 
 from mneno.cli.output import console, error, success, warning
+from mneno.cli.validation import reject_blank
 from mneno.cli.workspace import WORKSPACE_NOT_FOUND_MESSAGE, Workspace, find_workspace, get_workspace_client
 from mneno.models import MemoryType
 
@@ -47,6 +48,8 @@ def add_command(
     ] = None,
 ) -> None:
     """Add a memory using Mneno Core and local JSON storage."""
+    reject_blank(text, message="Memory text must not be empty.")
+
     workspace_path = find_workspace()
     if workspace_path is None:
         warning(WORKSPACE_NOT_FOUND_MESSAGE)
