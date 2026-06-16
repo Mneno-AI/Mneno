@@ -232,6 +232,11 @@ class ContextBuilder:
         ]
         if session_reasons:
             reason = f"{reason}; {session_reasons[0]}"
+        conflict_reasons = [
+            score_reason for score_reason in candidate.score.reasons if "marked conflicted" in score_reason.lower()
+        ]
+        if conflict_reasons:
+            reason = f"{reason}; {conflict_reasons[0]}"
         if policy.include_score_reasons and candidate.score.reasons:
             reason = f"{reason}; {candidate.score.reasons[0]}"
         return ContextItem(

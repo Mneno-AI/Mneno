@@ -706,8 +706,6 @@ class MemoryClient:
                         )["continuity_boost"]
                     },
                 )
-            if memory.status is MemoryStatus.CONFLICTED:
-                score = score.model_copy(update={"reasons": [*score.reasons, "Memory is marked conflicted"]})
             self._trace_event(
                 trace,
                 event_type="score_calculated",

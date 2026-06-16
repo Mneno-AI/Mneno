@@ -280,6 +280,11 @@ Mneno detects simple contradictions, duplicates, and superseding facts with dete
 deletes memories automatically. Resolution updates lifecycle metadata, records audit events, and keeps conflict reports
 explainable.
 
+Contradictions are not treated as updates by default. Supersession requires explicit update language such as `now`,
+`changed to`, `updated to`, `no longer`, `from now on`, `correction:`, `actually`, `previously ... now ...`, or
+`supersedes`. Without that signal, Mneno marks the memories as conflicted and keeps both visible for default retrieval
+and context building with a conflict warning.
+
 ```python
 from mneno import MemoryClient
 
@@ -298,9 +303,15 @@ for report in result.conflict_reports:
 active = client.search("What Python version does the user prefer?")
 ```
 
+Examples:
+
+- `User prefers Python 3.10.` plus `User now prefers Python 3.11.` supersedes the older memory.
+- `User prefers CLI.` plus `User wants MCP.` is a conflict, not silent supersession.
+
 Memory statuses are `active`, `superseded`, `archived`, and `conflicted`. Superseded and archived memories are excluded
-from default retrieval and context building; pass `include_inactive=True` to inspect them. Audit history preserves why a
-memory changed status, which memory caused the change, and the evidence behind the report.
+from default retrieval and context building; pass `include_inactive=True` to inspect them. Conflicted memories remain
+visible by default so developers can see both sides before acting. Audit history preserves why a memory changed status,
+which memory caused the change, and the evidence behind the report.
 
 ## Hierarchical Memory Organization
 

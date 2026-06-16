@@ -264,3 +264,35 @@ def test_search_help_lists_supported_options() -> None:
     assert "Include archived" in output
     assert "other inactive" in output
     assert "Show scoring" in output
+
+
+def test_search_dogfooding_conflict_regression_keeps_original_preference(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    initialize(tmp_path, monkeypatch)
+    add_memory("Cristian prefers a CLI over an MCP for the first demo.", "--tag", "cristian", "--tag", "cli")
+    add_memory(
+        "Misleading note: Cristian definitely wants an MCP instead of a CLI.", "--tag", "misleading", "--tag", "mcp"
+    )
+
+    result = runner.invoke(app, ["search", "CLI over MCP", "--json"])
+    payload = json.loads(result.output)
+
+    assert result.exit_code == 0
+    original = next(
+        item for item in payload if item["content"] == "Cristian prefers a CLI over an MCP for the first demo."
+    )
+    assert original["status"] == "conflicted"
+    assert any("marked conflicted with 1 related memory" in reason for reason in original["reasons"])
+
+
+def test_search_conflicted_memory_shows_status_and_reason(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    initialize(tmp_path, monkeypatch)
+    add_memory("User wants MCP first.", "--type", "preference")
+    add_memory("User does not want MCP first.", "--type", "preference")
+
+    result = runner.invoke(app, ["search", "MCP first"])
+
+    assert result.exit_code == 0
+    assert "conflicted" in result.output
+    assert "Memory is marked conflicted with 1 related memory." in result.output

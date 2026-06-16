@@ -298,3 +298,32 @@ def test_context_help_lists_supported_options() -> None:
     assert "Include archived" in output
     assert "other inactive" in output
     assert "Show memories" in output
+
+
+def test_context_dogfooding_conflict_regression_keeps_original_preference(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    initialize(tmp_path, monkeypatch)
+    original_id = add_memory(
+        "Cristian prefers a CLI over an MCP for the first demo.",
+        "--tag",
+        "cristian",
+        "--tag",
+        "cli",
+    )
+    add_memory(
+        "Misleading note: Cristian definitely wants an MCP instead of a CLI.",
+        "--tag",
+        "misleading",
+        "--tag",
+        "mcp",
+    )
+
+    result = runner.invoke(app, ["context", "should we use CLI or MCP?", "--budget", "100", "--json"])
+    payload = json.loads(result.output)
+    included_by_id = {item["memory_id"]: item for item in payload["included"]}
+
+    assert result.exit_code == 0
+    assert original_id in included_by_id
+    assert "Cristian prefers a CLI over an MCP" in payload["text"]
+    assert "marked conflicted with 1 related memory" in included_by_id[original_id]["reason"]

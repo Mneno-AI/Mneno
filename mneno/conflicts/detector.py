@@ -4,13 +4,27 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from mneno.conflicts.policies import ConflictPolicy
 from mneno.conflicts.reports import ConflictAction, ConflictReport, ConflictSeverity, ConflictType
 from mneno.models import Memory, MemoryType
 
 TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9]+")
-UPDATE_CUES = ("now", "changed to", "no longer", "instead", "replaced by")
+UPDATE_CUE_PATTERNS = (
+    re.compile(r"\bnow\b"),
+    re.compile(r"\bchanged\s+to\b"),
+    re.compile(r"\bupdated\s+to\b"),
+    re.compile(r"\bno\s+longer\b"),
+    re.compile(r"\bfrom\s+now\s+on\b"),
+    re.compile(r"\bcorrection\s*:"),
+    re.compile(r"\bactually\b"),
+    re.compile(r"\bpreviously\b.*\bnow\b"),
+    re.compile(r"\bsupersedes?\b"),
+    re.compile(r"\breplaced\s+by\b"),
+    re.compile(r"\binstead\b(?!\s+of\b)"),
+)
+UPDATE_METADATA_KEYS = ("supersedes", "correction", "verified")
 OPERATIONAL_KEYS = ("task", "goal", "constraint", "requirement", "priority")
 
 
@@ -124,8 +138,8 @@ class ConflictDetector:
         if not policy.detect_preference_changes:
             return None
 
-        new_claim = _preference_claim(new_memory.content)
-        existing_claim = _preference_claim(existing_memory.content)
+        new_claim = _preference_claim(new_memory.content, metadata=new_memory.metadata)
+        existing_claim = _preference_claim(existing_memory.content, metadata=existing_memory.metadata)
         if new_claim is None or existing_claim is None:
             return None
 
@@ -134,12 +148,32 @@ class ConflictDetector:
         same_domain = values_overlap > 0.0 or new_claim.update_cue or existing_claim.update_cue
 
         if policy.detect_negations and same_object and new_claim.negated != existing_claim.negated:
+            if new_claim.update_cue:
+                return ConflictReport(
+                    conflict_type=ConflictType.SUPERSESSION,
+                    severity=ConflictSeverity.MEDIUM,
+                    new_memory_id=new_memory.id,
+                    existing_memory_id=existing_memory.id,
+                    reason=(
+                        "New memory contains an explicit update signal and supersedes an existing "
+                        f"{existing_claim.verb} preference."
+                    ),
+                    evidence=[
+                        f"new_{new_claim.verb}={new_claim.value}",
+                        f"existing_{existing_claim.verb}={existing_claim.value}",
+                        "explicit_update_signal=true",
+                    ],
+                    suggested_action=ConflictAction.SUPERSEDE_EXISTING,
+                )
             return ConflictReport(
                 conflict_type=ConflictType.CONTRADICTION,
                 severity=ConflictSeverity.HIGH,
                 new_memory_id=new_memory.id,
                 existing_memory_id=existing_memory.id,
-                reason=f"New memory negates an existing {existing_claim.verb} preference.",
+                reason=(
+                    "Contradiction detected without explicit supersession signal; memory was marked conflicted "
+                    f"instead of superseded. New memory negates an existing {existing_claim.verb} preference."
+                ),
                 evidence=[f"new={new_memory.content}", f"existing={existing_memory.content}"],
                 suggested_action=ConflictAction.MARK_CONFLICTED,
             )
@@ -148,25 +182,37 @@ class ConflictDetector:
             return None
 
         if new_claim.value != existing_claim.value and same_domain:
-            conflict_type = ConflictType.SUPERSESSION if new_claim.update_cue else ConflictType.PREFERENCE_CHANGE
-            severity = ConflictSeverity.MEDIUM if new_claim.update_cue else ConflictSeverity.LOW
+            if not new_claim.update_cue:
+                return ConflictReport(
+                    conflict_type=ConflictType.CONTRADICTION,
+                    severity=ConflictSeverity.HIGH,
+                    new_memory_id=new_memory.id,
+                    existing_memory_id=existing_memory.id,
+                    reason=(
+                        "Contradiction detected without explicit supersession signal; memory was marked conflicted "
+                        "instead of superseded. New memory records a different preference from an existing memory."
+                    ),
+                    evidence=[
+                        f"new_{new_claim.verb}={new_claim.value}",
+                        f"existing_{existing_claim.verb}={existing_claim.value}",
+                        "explicit_update_signal=false",
+                    ],
+                    suggested_action=ConflictAction.MARK_CONFLICTED,
+                )
             return ConflictReport(
-                conflict_type=conflict_type,
-                severity=severity,
+                conflict_type=ConflictType.SUPERSESSION,
+                severity=ConflictSeverity.MEDIUM,
                 new_memory_id=new_memory.id,
                 existing_memory_id=existing_memory.id,
                 reason=(
-                    "New memory appears to supersede an existing preference."
-                    if new_claim.update_cue
-                    else "New memory records a different preference from an existing memory."
+                    "New memory contains an explicit update signal and appears to supersede an existing preference."
                 ),
                 evidence=[
                     f"new_{new_claim.verb}={new_claim.value}",
                     f"existing_{existing_claim.verb}={existing_claim.value}",
+                    "explicit_update_signal=true",
                 ],
-                suggested_action=(
-                    ConflictAction.SUPERSEDE_EXISTING if policy.auto_supersede_preferences else ConflictAction.KEEP_BOTH
-                ),
+                suggested_action=ConflictAction.SUPERSEDE_EXISTING,
             )
         return None
 
@@ -200,12 +246,12 @@ class ConflictDetector:
         )
 
 
-def _preference_claim(content: str) -> _PreferenceClaim | None:
+def _preference_claim(content: str, *, metadata: dict[str, Any] | None = None) -> _PreferenceClaim | None:
     text = _clean_text(content)
     negation_pattern = r"\b(?:does not|doesn't|do not|don't|no longer)\s+"
     negation_pattern += r"(?:prefer|prefers|like|likes|want|wants)\b"
     negated = bool(re.search(negation_pattern, text))
-    update_cue = any(cue in text for cue in UPDATE_CUES)
+    update_cue = _has_explicit_update_signal(text, metadata=metadata)
 
     patterns = [
         r"\b(?:now\s+)?(?P<verb>prefer|prefers|like|likes|want|wants)\s+(?P<value>.+)$",
@@ -231,7 +277,7 @@ def _preference_claim(content: str) -> _PreferenceClaim | None:
 
 def _operational_claim(content: str) -> _OperationalClaim | None:
     text = _clean_text(content)
-    update_cue = any(cue in text for cue in UPDATE_CUES)
+    update_cue = _has_explicit_update_signal(text)
     for key in OPERATIONAL_KEYS:
         patterns = [
             rf"\bcurrent\s+{key}\s+(?:is|=|:)\s+(?P<value>.+)$",
@@ -263,6 +309,18 @@ def _canonical_verb(verb: str) -> str:
     if verb in {"like", "likes"}:
         return "like"
     return "want"
+
+
+def _has_explicit_update_signal(text: str, metadata: dict[str, Any] | None = None) -> bool:
+    if any(pattern.search(text) for pattern in UPDATE_CUE_PATTERNS):
+        return True
+    if metadata is None:
+        return False
+    for key in UPDATE_METADATA_KEYS:
+        value = metadata.get(key)
+        if value:
+            return True
+    return False
 
 
 def _normalize(content: str) -> str:
