@@ -58,11 +58,13 @@ context = client.build_context("What matters now?", policy=custom_policy)
 
 ### Policy Parameters
 
+These are the defaults for the `ContextPolicy` class. When using `MemoryClient.build_context()`, the `balanced` preset is used by default unless a policy or another preset is supplied.
+
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
-| `max_tokens` | 1200 | Total token budget for the context. |
-| `reserve_tokens` | 200 | Tokens to reserve (subtracted from `max_tokens`). |
-| `min_score` | 0.15 | Minimum score required for inclusion. |
+| `max_tokens` | (required) | Total token budget for the context. |
+| `reserve_tokens` | `0` | Tokens to reserve (subtracted from `max_tokens`). |
+| `min_score` | `0.0` | Minimum score required for inclusion. |
 | `strategy` | `"score"` | How to sort candidates (`score`, `recency`, or `importance`). |
 | `max_items` | `None` | Hard limit on the number of memories included. |
 | `dedupe` | `True` | Whether to remove memories with duplicate content. |

@@ -57,10 +57,10 @@ client = MemoryClient(policy=policy)
 
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
-| `recency_weight` | 0.25 | Weight for the recency signal. |
-| `importance_weight` | 0.35 | Weight for the importance signal. |
-| `relevance_weight` | 0.25 | Weight for the relevance (keyword/semantic) signal. |
-| `access_weight` | 0.15 | Weight for the access frequency signal. |
-| `freshness_weight` | 0.10 | Weight for the original creation age. |
+| `recency_weight` | 0.15 | Weight for the recency signal. |
+| `importance_weight` | 0.20 | Weight for the importance signal. |
+| `relevance_weight` | 0.50 | Weight for the relevance (keyword/semantic) signal. |
+| `access_weight` | 0.10 | Weight for the access frequency signal. |
+| `freshness_weight` | 0.05 | Weight for the original creation age. |
 | `recency_half_life_days` | 30.0 | Days it takes for recency score to drop by 50%. |
 | `freshness_decay_days` | 180.0 | Days until a memory is considered "stale" (0 freshness). |
