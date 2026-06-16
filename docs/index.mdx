@@ -23,6 +23,7 @@ Mneno is built around **scoring**, **lifecycle management**, **compaction**, and
 - **Provider Agnostic**: Protocol-based integration for embeddings, LLMs, and rerankers.
 - **Lifecycle and Hierarchy**: Preserve audit history across active, superseded, archived, and conflicted memories organized into deterministic layers.
 - **Sessions and Timelines**: Group memories into ordered sessions, reconstruct timelines, and recover continuity across related work.
+- **Local CLI**: Initialize workspaces, manage memories, search, and build context from the command line.
 - **Structured Extraction**: Extract memories deterministically or through an optional validated `LLMProvider`.
 - **Local Observability**: Record in-memory traces for retrieval, context building, compaction, conflicts, hierarchy, extraction, and sessions.
 - **Evaluation Hooks**: Measure retrieval, context, compaction, token efficiency, latency, and explainability for future Mneno Bench adapters.
@@ -32,6 +33,9 @@ Mneno is built around **scoring**, **lifecycle management**, **compaction**, and
 <CardGroup cols={2}>
   <Card title="Quickstart" icon="rocket" href="/quickstart">
     Get Mneno up and running in minutes.
+  </Card>
+  <Card title="Mneno CLI" icon="terminal" href="/advanced/cli">
+    Manage your memories from the command line.
   </Card>
   <Card title="Core Concepts" icon="brain" href="/concepts/scoring">
     Learn how Mneno handles memory and context.

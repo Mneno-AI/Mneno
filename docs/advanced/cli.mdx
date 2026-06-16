@@ -1,0 +1,79 @@
+---
+title: "Mneno CLI"
+description: "Manage your memory workspace from the command line."
+---
+
+Mneno includes a local-first CLI for managing memories, searching, and building context without writing Python code. It is designed for developers, automation, and quick inspection of local memory stores.
+
+## Getting Started
+
+The CLI is included with the `mneno` package.
+
+```bash
+pip install mneno
+mneno --help
+```
+
+### Initialize a Workspace
+
+A workspace is a `.mneno/` directory in your project root that stores memories and configuration.
+
+```bash
+mneno init
+```
+
+This creates:
+- `.mneno/config.json`: Workspace configuration.
+- `.mneno/memories.json`: Local memory storage (JSON).
+
+## Commands
+
+### Add a Memory
+
+```bash
+mneno add "User prefers Python 3.12 for new projects." --importance 0.9 --tag preference
+```
+
+### Search Memories
+
+```bash
+mneno search "What is the user's preferred language?"
+```
+
+Search returns ranked results with score explanations. Use `--limit` to control the number of results.
+
+### Build Context
+
+Build a formatted context package for prompt injection.
+
+```bash
+mneno context "Analyze the project requirements" --budget 1000
+```
+
+### Show Status
+
+Inspect the current workspace state, including memory and session counts.
+
+```bash
+mneno status
+```
+
+### List Recent Memories
+
+Quickly see the most recently updated memories.
+
+```bash
+mneno recent --limit 5
+```
+
+## JSON Output
+
+For automation and scripting, all commands support a `--json` flag.
+
+```bash
+mneno search "mneno" --json | jq '.[0].memory.content'
+```
+
+## Configuration
+
+The CLI uses the nearest `.mneno` directory it finds when searching upwards from the current directory. This allows you to run `mneno` from anywhere within your project.

@@ -15,6 +15,15 @@ The final score of a memory is a weighted average of several signals:
 - **Frequency**: How often the memory has been accessed by the agent.
 - **Freshness**: How long ago the memory was originally created.
 
+## Relevance Boundary
+
+Starting in `v0.4.0`, Mneno's search and context building engines exclude candidates with no query relevance from deterministic results. This prevents unrelated memories from being included solely because of high importance, recency, or layer boosts.
+
+- **Search**: Results with a `relevance` score of `0.0` are excluded by default.
+- **Context**: Memories that do not match the query are excluded, ensuring the context package stays focused on the user's intent.
+
+Optional rerankers can still re-order results if they have their own relevance logic.
+
 ## Explainable Scores
 
 Every search result includes a `MemoryScore` object that explains exactly why a memory was ranked the way it was.

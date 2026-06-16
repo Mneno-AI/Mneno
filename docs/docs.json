@@ -35,6 +35,7 @@
           {
             "group": "Advanced",
             "pages": [
+              "advanced/cli",
               "advanced/providers",
               "advanced/extraction",
               "advanced/import-export",
