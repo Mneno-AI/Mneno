@@ -1,0 +1,62 @@
+---
+title: "Agent Integrations"
+description: "Configure coding-agent instructions and workflows in your repository."
+---
+
+Mneno provides a built-in CLI command to bootstrap coding-agent instructions and shared workflow documentation within
+your repository. This helps AI coding assistants understand how to recover and update local workspace memories.
+
+## Installing Templates
+
+To install coding-agent instructions into an initialized repository, use the `mneno setup-agent` command:
+
+```bash
+mneno init
+mneno setup-agent <agent-name>
+```
+
+This copies the selected agent template and shared Mneno workflow documents into your current repository. It is a local
+filesystem operation only, requiring no MCP server, cloud account, provider configuration, or external network calls.
+
+## Supported Agents
+
+Mneno currently supports the following coding assistants:
+
+- `codex`
+- `claude-code`
+- `cursor`
+- `gemini-cli`
+- `windsurf`
+
+For example, to configure instructions for Claude Code, run:
+
+```bash
+mneno setup-agent claude-code
+```
+
+## Safety And Overwrites
+
+By default, setup refuses to overwrite existing integration files.
+
+Preview changes with `--dry-run`:
+
+```bash
+mneno setup-agent codex --dry-run
+```
+
+Intentionally replace existing agent integration files with `--force` or `-f`:
+
+```bash
+mneno setup-agent codex --force
+```
+
+## Shared Workflow Documents
+
+When you run `setup-agent`, Mneno copies shared workflow docs into `.mneno/agent-docs/`:
+
+- `AGENT_WORKFLOW.md`: standard workflows for when and how the agent should read or update memories.
+- `MEMORY_GUIDELINES.md`: criteria for durable, useful memories and what not to store.
+- `COMMAND_REFERENCE.md`: local `mneno` CLI command reference and cautions.
+
+Claude Code also receives a valid Agent Skills package at `.mneno/skills/mneno-memory/`, including `SKILL.md` and local
+`references/` files copied from the shared docs.

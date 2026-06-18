@@ -52,6 +52,9 @@ Source = "https://github.com/Mneno-AI/Mneno"
 [tool.hatch.build.targets.wheel]
 packages = ["mneno"]
 
+[tool.hatch.build.targets.wheel.force-include]
+integrations = "integrations"
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"

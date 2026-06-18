@@ -32,6 +32,7 @@ Mneno includes a local-first command-line interface for creating and inspecting 
 
 ```bash
 mneno init
+mneno setup-agent codex
 mneno add "LOCOMO exposed ranking issues" --tag locomo
 mneno recent
 mneno search "LOCOMO"
@@ -72,6 +73,32 @@ Excluded: 0
 ```
 
 The CLI requires no database, cloud account, or external service.
+
+### Agent Template Setup
+
+Mneno can install coding-agent instructions into an initialized repository:
+
+```bash
+mneno init
+mneno setup-agent codex
+mneno context "continue development"
+```
+
+`mneno setup-agent` copies the selected agent template and shared Mneno workflow docs into the current repository. It is
+local filesystem setup only: no MCP server, cloud account, provider, network call, or retrieval behavior change.
+
+Supported agents:
+
+```bash
+mneno setup-agent codex
+mneno setup-agent claude-code
+mneno setup-agent cursor
+mneno setup-agent gemini-cli
+mneno setup-agent windsurf
+```
+
+By default, setup is safe and will not overwrite existing files. Use `--dry-run` to preview what would be created, and
+use `--force` only when you intentionally want to replace existing agent files.
 
 ### Demo Workflow
 

@@ -1,51 +1,52 @@
+---
+name: mneno-memory
+description: Use when working in a repository that uses Mneno for local project memory through the CLI, including task-start context recovery, narrow memory search, and storing durable project facts before stopping work.
+---
+
 # Mneno Memory
 
-Use this skill when working in a repository that uses Mneno for local project memory.
+Use this skill when the repository has a `.mneno/` workspace and the task may depend on prior project context.
 
-Mneno is local-first. Use the CLI; do not assume a network service, cloud backend, provider, or MCP server exists.
-Mneno is an assistive memory layer, not a notebook and not the source of truth.
+## Start of task
 
-## When To Use
+1. Run `mneno status`.
+2. Run `mneno context "<current task>"`.
+3. Verify important claims against repository files before acting.
 
-- At the start of a task, to recover relevant project memory.
-- For narrow lookup before relying on prior decisions, bugs, benchmarks, or constraints.
-- After a meaningful work unit reveals durable information that should help future agents.
-- Before finishing, to store important decisions, root causes, constraints, or next steps.
+## During work
 
-## Commands
+- Use `mneno search "<specific topic>"` for narrow follow-up lookup.
+- Do not use Mneno for broad vague discovery.
+- Do not assume Mneno is the source of truth.
 
-```bash
-mneno status
-mneno context "<task>"
-mneno recent
-mneno search "<topic>"
-mneno add "<durable memory>" --tag ...
-```
+## Before stopping
 
-Start with `mneno status`, then `mneno context "<task>"`. Use `mneno recent` only for a quick overview. Use
-`mneno search "<specific topic>"` for narrow follow-ups.
-
-## Examples
+Store one or more durable memories only if useful:
 
 ```bash
-mneno status
-mneno context "continue Mneno development after LOCOMO and CLI feedback"
-mneno search "Cristian CLI MCP demo preference"
-mneno add "Claude Code can use Mneno through local CLI commands without MCP for the first agent integration demo." \
-  --tag claude-code --tag integrations --tag cli
+mneno add "..." --tag ...
 ```
 
-## Safety Rules
+Store:
 
-- Verify important Mneno output against repository files when needed.
-- Do not run `mneno init` automatically; if no workspace exists, tell the user to run it in the intended project root.
-- Never store secrets, API keys, tokens, credentials, or sensitive personal data.
-- Do not store huge logs, generated code dumps, or raw stack traces.
-- Do not add memories for every file edit.
-- Do not use broad search as discovery when a specific query is possible.
+- Decisions.
+- Root causes.
+- Constraints.
+- Benchmark findings.
+- Next steps.
 
-## Memory Writing Policy
+Do not store:
 
-Write one concise, factual, durable, tagged memory at the end of a meaningful work unit. Good memories include
-architecture decisions, benchmark findings, root causes, user or product preferences, workflow discoveries, and "do not
-do X before Y" constraints. Use `--importance` for important constraints, bugs, and decisions.
+- Secrets.
+- Credentials.
+- Huge logs.
+- Routine edits.
+- Generated code dumps.
+
+## References
+
+Load only the reference needed for the current task:
+
+- Read `references/AGENT_WORKFLOW.md` when the task is continuing prior work or the Mneno workflow is unclear.
+- Read `references/COMMAND_REFERENCE.md` before using unfamiliar CLI options or interpreting command output.
+- Read `references/MEMORY_GUIDELINES.md` before storing memories or choosing tags.

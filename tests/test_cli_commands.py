@@ -20,6 +20,7 @@ def test_cli_without_command_shows_help() -> None:
     assert "context" in result.output
     assert "recent" in result.output
     assert "status" in result.output
+    assert "setup-agent" in result.output
 
 
 def test_cli_help_lists_commands() -> None:
@@ -32,6 +33,7 @@ def test_cli_help_lists_commands() -> None:
     assert "context" in result.output
     assert "recent" in result.output
     assert "status" in result.output
+    assert "setup-agent" in result.output
 
 
 def test_cli_version() -> None:
