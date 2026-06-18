@@ -42,7 +42,7 @@ def recent_command(
     ] = False,
     include_inactive: Annotated[
         bool,
-        typer.Option("--include-inactive", help="Include superseded and all other inactive memories."),
+        typer.Option("--include-inactive", help="Include inactive memories, including superseded memories."),
     ] = False,
     include_archived: Annotated[
         bool,

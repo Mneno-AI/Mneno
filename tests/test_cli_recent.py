@@ -144,9 +144,10 @@ def test_recent_empty_workspace_is_safe(tmp_path: Path, monkeypatch: MonkeyPatch
 def test_recent_help_lists_supported_options() -> None:
     result = runner.invoke(app, ["recent", "--help"])
     output = Text.from_ansi(result.output).plain
+    normalized_output = " ".join(output.replace("│", " ").split())
 
     assert result.exit_code == 0
     assert "--limit" in output
     assert "--json" in output
-    assert "archived memories" in output
-    assert "inactive memories" in output
+    assert "archived memories" in normalized_output
+    assert "inactive memories" in normalized_output
