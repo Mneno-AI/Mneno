@@ -38,7 +38,8 @@
               "advanced/providers",
               "advanced/extraction",
               "advanced/import-export",
-              "advanced/evaluation"
+              "advanced/evaluation",
+              "advanced/agent-integrations"
             ]
           }
         ]
