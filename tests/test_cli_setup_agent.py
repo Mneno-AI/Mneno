@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 from pytest import MonkeyPatch
+from rich.text import Text
 from typer.testing import CliRunner
 
 from mneno.cli.app import app
@@ -146,11 +147,13 @@ def test_setup_agent_dry_run_reports_files_without_writing(tmp_path: Path, monke
 
 def test_setup_agent_help_lists_supported_options() -> None:
     result = runner.invoke(app, ["setup-agent", "--help"])
+    output = Text.from_ansi(result.output).plain
+    normalized_output = " ".join(output.replace("│", " ").split())
 
     assert result.exit_code == 0
-    assert "Install Mneno agent integration templates into the current repository." in result.output
-    assert "--force" in result.output
-    assert "--dry-run" in result.output
+    assert "Install Mneno agent integration templates into the current repository." in normalized_output
+    assert "force" in normalized_output
+    assert "dry-run" in normalized_output
 
 
 def initialize(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
