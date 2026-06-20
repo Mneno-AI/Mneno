@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from mneno.cli.commands.add import add_command
+from mneno.cli.commands.completion import completion_command
 from mneno.cli.commands.context import context_command
 from mneno.cli.commands.init import init_command
 from mneno.cli.commands.recent import recent_command
@@ -30,6 +31,7 @@ COMMANDS = (
     Command(name="context", help="Build an explainable context package.", callback=context_command),
     Command(name="recent", help="Show recently updated workspace memories.", callback=recent_command),
     Command(name="status", help="Show local Mneno workspace information.", callback=status_command),
+    Command(name="completion", help="Generate a shell completion script.", callback=completion_command),
     Command(
         name="setup-agent",
         help="Install Mneno agent integration templates into the current repository.",

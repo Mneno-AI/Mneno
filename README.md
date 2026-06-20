@@ -74,6 +74,23 @@ Excluded: 0
 
 The CLI requires no database, cloud account, or external service.
 
+### Shell Completion
+
+Load Mneno's shell-native completion script for the current session:
+
+```bash
+source <(mneno completion bash)  # Bash
+source <(mneno completion zsh)   # Zsh
+mneno completion fish | source  # Fish
+```
+
+Add the matching command to the shell's startup file to enable it for future sessions, or save the generated output in
+the shell's completion directory.
+
+Completion includes Mneno subcommands, command options, and supported enum values. PowerShell is available with
+`mneno completion powershell` or `mneno completion pwsh`. The generated scripts do not launch Python or Mneno when Tab
+is pressed.
+
 ### Agent Template Setup
 
 Mneno can install coding-agent instructions into an initialized repository:
