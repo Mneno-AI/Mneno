@@ -58,5 +58,8 @@ When you run `setup-agent`, Mneno copies shared workflow docs into `.mneno/agent
 - `MEMORY_GUIDELINES.md`: criteria for durable, useful memories and what not to store.
 - `COMMAND_REFERENCE.md`: local `mneno` CLI command reference and cautions.
 
-Claude Code also receives a valid Agent Skills package at `.mneno/skills/mneno-memory/`, including `SKILL.md` and local
-`references/` files copied from the shared docs.
+Every supported setup receives a valid Agent Skills package, including `SKILL.md` and local `references/` files copied
+from the shared docs. Mneno installs it relative to the project root at:
+
+- `.agents/skills/mneno-memory/` for Codex, Cursor, Gemini CLI, and Windsurf.
+- `.claude/skills/mneno-memory/` for Claude Code, which uses its own project skill directory.

@@ -114,6 +114,10 @@ mneno setup-agent gemini-cli
 mneno setup-agent windsurf
 ```
 
+Each setup installs the reusable Mneno skill at `.agents/skills/mneno-memory/` in the project root. Claude Code uses its
+native project skill location, `.claude/skills/mneno-memory/`, instead. Agent-specific instruction files such as
+`AGENTS.md` are still installed where applicable.
+
 By default, setup is safe and will not overwrite existing files. Use `--dry-run` to preview what would be created, and
 use `--force` only when you intentionally want to replace existing agent files.
 

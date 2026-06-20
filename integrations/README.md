@@ -26,9 +26,8 @@ recover project context locally with low overhead.
 
 ## Directory Layout
 
-- `shared/`: reusable workflow, memory-writing, and CLI reference docs.
+- `shared/`: reusable Agent Skill, workflow, memory-writing, and CLI reference docs.
 - `codex/`: Codex-style `AGENTS.md` template.
-- `claude-code/`: Claude Code-style `SKILL.md` template.
 - `cursor/`: Cursor-style `AGENTS.md` template.
 - `gemini-cli/`: Gemini CLI-style `AGENTS.md` template.
 - `windsurf/`: Windsurf-style `AGENTS.md` template.
@@ -106,7 +105,7 @@ mneno search "LOCOMO selected_memory_ids zero recall"
 mneno search "Cristian CLI MCP demo preference"
 ```
 
-## Future Setup Command
+## Setup Command
 
-A future command such as `mneno setup-agent` may copy the right template and shared docs automatically. Until then,
-manual copying keeps the behavior explicit and easy to review.
+`mneno setup-agent <agent-name>` copies the matching instructions, shared docs, and reusable skill automatically. Skills
+are installed at `.agents/skills/mneno-memory/` except for Claude Code, which uses `.claude/skills/mneno-memory/`.
