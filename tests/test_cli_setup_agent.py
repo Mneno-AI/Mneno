@@ -14,7 +14,7 @@ runner = CliRunner()
     ("agent", "agent_file", "expected_text"),
     [
         ("codex", Path("AGENTS.md"), "Codex Instructions: Mneno Memory"),
-        ("claude-code", Path(".mneno") / "skills" / "mneno-memory" / "SKILL.md", "Mneno Memory"),
+        ("claude-code", Path(".claude") / "skills" / "mneno-memory" / "SKILL.md", "Mneno Memory"),
         ("cursor", Path("AGENTS.md"), "Cursor Instructions: Mneno Memory"),
         ("gemini-cli", Path("AGENTS.md"), "Gemini CLI Instructions: Mneno Memory"),
         ("windsurf", Path("AGENTS.md"), "Windsurf Instructions: Mneno Memory"),
@@ -37,6 +37,10 @@ def test_setup_agent_installs_supported_agents(
     assert str(agent_file).replace("\\", "/") in result.output
     assert (tmp_path / agent_file).exists()
     assert expected_text in (tmp_path / agent_file).read_text(encoding="utf-8")
+    skill_path = agent_skill_path(tmp_path, agent)
+    assert skill_path.exists()
+    assert "Mneno Memory" in skill_path.read_text(encoding="utf-8")
+    assert_skill_references_installed(skill_path.parent)
     assert_shared_docs_installed(tmp_path)
 
 
@@ -77,7 +81,7 @@ def test_setup_agent_protects_existing_agents_file(tmp_path: Path, monkeypatch: 
 
 def test_setup_agent_protects_existing_claude_skill(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     initialize(tmp_path, monkeypatch)
-    skill_file = tmp_path / ".mneno" / "skills" / "mneno-memory" / "SKILL.md"
+    skill_file = tmp_path / ".claude" / "skills" / "mneno-memory" / "SKILL.md"
     skill_file.parent.mkdir(parents=True)
     skill_file.write_text("custom skill", encoding="utf-8")
 
@@ -85,7 +89,7 @@ def test_setup_agent_protects_existing_claude_skill(tmp_path: Path, monkeypatch:
 
     assert result.exit_code == 1
     assert "File already exists:" in result.output
-    assert ".mneno/skills/mneno-memory/SKILL.md" in result.output
+    assert ".claude/skills/mneno-memory/SKILL.md" in result.output
     assert "Use --force to overwrite." in result.output
     assert skill_file.read_text(encoding="utf-8") == "custom skill"
 
@@ -97,7 +101,7 @@ def test_setup_agent_claude_skill_has_valid_frontmatter_and_routes_to_agent_docs
     initialize(tmp_path, monkeypatch)
 
     result = runner.invoke(app, ["setup-agent", "claude-code"])
-    skill_file = tmp_path / ".mneno" / "skills" / "mneno-memory" / "SKILL.md"
+    skill_file = tmp_path / ".claude" / "skills" / "mneno-memory" / "SKILL.md"
     content = skill_file.read_text(encoding="utf-8")
     lines = content.splitlines()
 
@@ -115,6 +119,22 @@ def test_setup_agent_claude_skill_has_valid_frontmatter_and_routes_to_agent_docs
     assert "mneno search" in content
     assert "mneno add" in content
     assert_skill_references_installed(skill_file.parent)
+
+
+def test_setup_agent_installs_skills_in_project_root_from_nested_directory(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    initialize(tmp_path, monkeypatch)
+    nested = tmp_path / "src" / "package"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+
+    result = runner.invoke(app, ["setup-agent", "codex"])
+
+    assert result.exit_code == 0
+    assert (tmp_path / ".agents" / "skills" / "mneno-memory" / "SKILL.md").exists()
+    assert not (nested / ".agents").exists()
 
 
 def test_setup_agent_force_overwrites_existing_files(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -138,6 +158,7 @@ def test_setup_agent_dry_run_reports_files_without_writing(tmp_path: Path, monke
     assert result.exit_code == 0
     assert "Would create:" in result.output
     assert "AGENTS.md" in result.output
+    assert ".agents/skills/mneno-memory/SKILL.md" in result.output
     assert ".mneno/agent-docs/AGENT_WORKFLOW.md" in result.output
     assert ".mneno/agent-docs/MEMORY_GUIDELINES.md" in result.output
     assert ".mneno/agent-docs/COMMAND_REFERENCE.md" in result.output
@@ -160,6 +181,11 @@ def initialize(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["init"])
     assert result.exit_code == 0
+
+
+def agent_skill_path(root: Path, agent: str) -> Path:
+    skills_directory = ".claude" if agent == "claude-code" else ".agents"
+    return root / skills_directory / "skills" / "mneno-memory" / "SKILL.md"
 
 
 def assert_shared_docs_installed(tmp_path: Path) -> None:

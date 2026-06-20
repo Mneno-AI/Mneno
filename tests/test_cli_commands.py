@@ -1,4 +1,5 @@
 from pathlib import Path
+from subprocess import run
 
 from pytest import MonkeyPatch
 from typer.testing import CliRunner
@@ -21,6 +22,7 @@ def test_cli_without_command_shows_help() -> None:
     assert "recent" in result.output
     assert "status" in result.output
     assert "setup-agent" in result.output
+    assert "completion" in result.output
 
 
 def test_cli_help_lists_commands() -> None:
@@ -34,6 +36,63 @@ def test_cli_help_lists_commands() -> None:
     assert "recent" in result.output
     assert "status" in result.output
     assert "setup-agent" in result.output
+    assert "completion" in result.output
+
+
+def test_cli_completion_generates_shell_scripts() -> None:
+    expected_markers = {
+        "bash": "complete -o default -F _mneno_completion mneno",
+        "zsh": "compdef _mneno_completion mneno",
+        "fish": "complete --command mneno",
+        "powershell": "Register-ArgumentCompleter -Native -CommandName mneno",
+        "pwsh": "Register-ArgumentCompleter -Native -CommandName mneno",
+    }
+
+    for shell, marker in expected_markers.items():
+        result = runner.invoke(app, ["completion", shell])
+
+        assert result.exit_code == 0
+        assert marker in result.output
+        assert "_MNENO_COMPLETE" not in result.output
+        assert "complete_bash" not in result.output
+
+
+def test_cli_bash_completion_suggests_matching_subcommands_without_running_mneno() -> None:
+    generated = runner.invoke(app, ["completion", "bash"])
+    assert generated.exit_code == 0
+    script = (
+        generated.output
+        + "\nCOMP_WORDS=(mneno se); COMP_CWORD=1; _mneno_completion; "
+        + "printf '%s\\n' \"${COMPREPLY[@]}\""
+    )
+
+    completed = run(
+        ["bash", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.stdout.splitlines() == ["search", "setup-agent"]
+
+
+def test_cli_bash_completion_suggests_option_values() -> None:
+    generated = runner.invoke(app, ["completion", "bash"])
+    assert generated.exit_code == 0
+    script = (
+        generated.output
+        + "\nCOMP_WORDS=(mneno add --type s); COMP_CWORD=3; _mneno_completion; "
+        + "printf '%s\\n' \"${COMPREPLY[@]}\""
+    )
+
+    completed = run(
+        ["bash", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.stdout.splitlines() == ["semantic"]
 
 
 def test_cli_version() -> None:

@@ -11,9 +11,9 @@ class AgentTemplate:
     """Source and destination metadata for one agent template."""
 
     name: str
-    source: Path
-    target: Path
-    references_target: Path | None = None
+    skill_target: Path
+    instructions_source: Path | None = None
+    instructions_target: Path | None = None
 
 
 SUPPORTED_AGENTS = ("codex", "claude-code", "cursor", "gemini-cli", "windsurf")
@@ -21,31 +21,35 @@ SUPPORTED_AGENTS = ("codex", "claude-code", "cursor", "gemini-cli", "windsurf")
 AGENT_TEMPLATES: dict[str, AgentTemplate] = {
     "codex": AgentTemplate(
         name="codex",
-        source=Path("codex") / "AGENTS.md",
-        target=Path("AGENTS.md"),
+        skill_target=Path(".agents") / "skills" / "mneno-memory",
+        instructions_source=Path("codex") / "AGENTS.md",
+        instructions_target=Path("AGENTS.md"),
     ),
     "claude-code": AgentTemplate(
         name="claude-code",
-        source=Path("claude-code") / "SKILL.md",
-        target=Path(".mneno") / "skills" / "mneno-memory" / "SKILL.md",
-        references_target=Path(".mneno") / "skills" / "mneno-memory" / "references",
+        skill_target=Path(".claude") / "skills" / "mneno-memory",
     ),
     "cursor": AgentTemplate(
         name="cursor",
-        source=Path("cursor") / "AGENTS.md",
-        target=Path("AGENTS.md"),
+        skill_target=Path(".agents") / "skills" / "mneno-memory",
+        instructions_source=Path("cursor") / "AGENTS.md",
+        instructions_target=Path("AGENTS.md"),
     ),
     "gemini-cli": AgentTemplate(
         name="gemini-cli",
-        source=Path("gemini-cli") / "AGENTS.md",
-        target=Path("AGENTS.md"),
+        skill_target=Path(".agents") / "skills" / "mneno-memory",
+        instructions_source=Path("gemini-cli") / "AGENTS.md",
+        instructions_target=Path("AGENTS.md"),
     ),
     "windsurf": AgentTemplate(
         name="windsurf",
-        source=Path("windsurf") / "AGENTS.md",
-        target=Path("AGENTS.md"),
+        skill_target=Path(".agents") / "skills" / "mneno-memory",
+        instructions_source=Path("windsurf") / "AGENTS.md",
+        instructions_target=Path("AGENTS.md"),
     ),
 }
+
+SKILL_SOURCE = Path("shared") / "mneno-memory" / "SKILL.md"
 
 SHARED_DOCS = (
     "AGENT_WORKFLOW.md",

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from mneno.cli.integrations.templates import SHARED_DOCS, get_agent_template, integration_templates_root
+from mneno.cli.integrations.templates import SHARED_DOCS, SKILL_SOURCE, get_agent_template, integration_templates_root
 
 
 @dataclass(frozen=True)
@@ -43,13 +43,23 @@ def plan_agent_installation(agent: str, workspace_path: Path) -> InstallationPla
     template = get_agent_template(agent)
     repository_root = workspace_path.parent
 
+    skill_file = template.skill_target / "SKILL.md"
     files = [
         TemplateFile(
-            source=template_root / template.source,
-            target=repository_root / template.target,
-            display_path=_display_path(template.target),
+            source=template_root / SKILL_SOURCE,
+            target=repository_root / skill_file,
+            display_path=_display_path(skill_file),
         )
     ]
+    if template.instructions_source is not None and template.instructions_target is not None:
+        files.insert(
+            0,
+            TemplateFile(
+                source=template_root / template.instructions_source,
+                target=repository_root / template.instructions_target,
+                display_path=_display_path(template.instructions_target),
+            ),
+        )
     for filename in SHARED_DOCS:
         target = Path(".mneno") / "agent-docs" / filename
         files.append(
@@ -59,15 +69,14 @@ def plan_agent_installation(agent: str, workspace_path: Path) -> InstallationPla
                 display_path=_display_path(target),
             )
         )
-        if template.references_target is not None:
-            reference_target = template.references_target / filename
-            files.append(
-                TemplateFile(
-                    source=template_root / "shared" / filename,
-                    target=repository_root / reference_target,
-                    display_path=_display_path(reference_target),
-                )
+        reference_target = template.skill_target / "references" / filename
+        files.append(
+            TemplateFile(
+                source=template_root / "shared" / filename,
+                target=repository_root / reference_target,
+                display_path=_display_path(reference_target),
             )
+        )
     return InstallationPlan(agent=agent, files=tuple(files))
 
 
