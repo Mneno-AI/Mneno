@@ -29,6 +29,7 @@ STOPWORDS = {
     "what",
     "with",
     "did",
+    "do",
     "does",
     "how",
     "i",
@@ -58,6 +59,9 @@ class _LexicalMatch:
     exact_terms: list[str]
     phrase_match: bool
     substring_match: bool
+    metadata_terms: list[str]
+    content_relevance: float
+    metadata_relevance: float
 
 
 class TemporalMemoryScorer:
@@ -87,7 +91,7 @@ def calculate_memory_score(
     recency = _recency_score(memory.updated_at, half_life_days=active_policy.recency_half_life_days)
     frequency = min(memory.access_count / 10.0, 1.0)
     freshness = _freshness_score(memory.created_at, decay_days=active_policy.freshness_decay_days)
-    lexical_match = _lexical_match(query, _searchable_text(memory))
+    lexical_match = _memory_lexical_match(query, memory)
     keyword_relevance = lexical_match.relevance
     semantic_relevance = _semantic_relevance(query, memory, embedding_provider=embedding_provider)
     relevance = max(keyword_relevance, semantic_relevance or 0.0)
@@ -154,12 +158,12 @@ def _lexical_match(query: str, content: str) -> _LexicalMatch:
     query_tokens_list = _tokens(query)
     query_tokens = set(query_tokens_list)
     if not query_tokens:
-        return _LexicalMatch(0.0, 0.0, [], [], False, False)
+        return _LexicalMatch(0.0, 0.0, [], [], False, False, [], 0.0, 0.0)
 
     content_tokens_list = _tokens(content)
     content_tokens = set(content_tokens_list)
     if not content_tokens:
-        return _LexicalMatch(0.0, 0.0, [], [], False, False)
+        return _LexicalMatch(0.0, 0.0, [], [], False, False, [], 0.0, 0.0)
 
     matched_terms = sorted(query_tokens & content_tokens)
     token_overlap = len(matched_terms) / len(query_tokens)
@@ -183,6 +187,25 @@ def _lexical_match(query: str, content: str) -> _LexicalMatch:
         exact_terms=exact_terms,
         phrase_match=phrase_match,
         substring_match=substring_match,
+        metadata_terms=[],
+        content_relevance=relevance,
+        metadata_relevance=0.0,
+    )
+
+
+def _memory_lexical_match(query: str, memory: Memory) -> _LexicalMatch:
+    content_match = _lexical_match(query, memory.content)
+    metadata_match = _lexical_match(query, _metadata_searchable_text(memory))
+    return _LexicalMatch(
+        relevance=min(content_match.relevance + metadata_match.relevance * 0.50, 1.0),
+        token_overlap=content_match.token_overlap,
+        matched_terms=sorted(set(content_match.matched_terms) | set(metadata_match.matched_terms)),
+        exact_terms=content_match.exact_terms,
+        phrase_match=content_match.phrase_match,
+        substring_match=content_match.substring_match,
+        metadata_terms=metadata_match.matched_terms,
+        content_relevance=content_match.relevance,
+        metadata_relevance=metadata_match.relevance,
     )
 
 
@@ -199,16 +222,8 @@ def _semantic_relevance(
     return safe_similarity(query_embedding, memory_embedding)
 
 
-def _searchable_text(memory: Memory) -> str:
-    return " ".join(
-        [
-            memory.content,
-            memory.memory_type.value,
-            memory.layer.value,
-            memory.source or "",
-            " ".join(memory.tags),
-        ]
-    )
+def _metadata_searchable_text(memory: Memory) -> str:
+    return " ".join([memory.memory_type.value, memory.layer.value, memory.source or "", " ".join(memory.tags)])
 
 
 def _score_reasons(
@@ -223,8 +238,11 @@ def _score_reasons(
 ) -> list[str]:
     reasons = [f"Matched query term: {term}" for term in lexical_match.exact_terms]
     normalized_exact_terms = {_normalize_token(term) for term in lexical_match.exact_terms}
-    normalized_only = sorted(set(lexical_match.matched_terms) - normalized_exact_terms)
+    normalized_only = sorted(
+        set(lexical_match.matched_terms) - normalized_exact_terms - set(lexical_match.metadata_terms)
+    )
     reasons.extend(f"Normalized query term match: {term}" for term in normalized_only)
+    reasons.extend(f"Matched metadata term: {term}" for term in lexical_match.metadata_terms)
     if len(lexical_match.matched_terms) > 1:
         reasons.append(f"Multi-token query overlap: {lexical_match.token_overlap:.2f}")
     if lexical_match.phrase_match:
@@ -347,7 +365,7 @@ def score_trace_data(
     related_session_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     """Return stable, JSON-compatible retrieval diagnostics for one memory."""
-    lexical_match = _lexical_match(query, _searchable_text(memory))
+    lexical_match = _memory_lexical_match(query, memory)
     current_session_boost = 0.0
     continuity_boost = 0.0
     if current_session_id is not None and memory.session_id == current_session_id:
@@ -369,10 +387,13 @@ def score_trace_data(
         "frequency_component": score.frequency,
         "freshness_component": score.freshness,
         "keyword_relevance_component": round(lexical_match.relevance, 6),
+        "content_lexical_relevance_component": round(lexical_match.content_relevance, 6),
+        "metadata_lexical_relevance_component": round(lexical_match.metadata_relevance, 6),
         "overall_relevance_component": score.relevance,
         "semantic_relevance_component": score.semantic_relevance,
         "matched_query_terms": lexical_match.matched_terms,
         "exact_query_terms": lexical_match.exact_terms,
+        "matched_metadata_terms": lexical_match.metadata_terms,
         "phrase_match": lexical_match.phrase_match,
         "substring_match": lexical_match.substring_match,
         "hierarchy_layer_adjustment": LAYER_SCORE_ADJUSTMENT.get(memory.layer, 0.0),
