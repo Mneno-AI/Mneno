@@ -65,7 +65,7 @@ context = client.build_context("What matters now?", policy=custom_policy)
 | `min_score` | 0.15 | Minimum score required for inclusion. |
 | `strategy` | `"score"` | How to sort candidates (`score`, `recency`, or `importance`). |
 | `max_items` | `None` | Hard limit on the number of memories included. |
-| `dedupe` | `True` | Whether to remove memories with duplicate content. |
+| `dedupe` | `True` | Whether to remove duplicate content. |
 
 ## Explainable Context
 
@@ -78,3 +78,6 @@ for item in context.excluded:
 ```
 
 This transparency is crucial for debugging why an LLM might have missed specific information.
+
+Conflicted memories remain eligible by default and are marked with an explicit conflict warning in both their inclusion
+reason and formatted context text.

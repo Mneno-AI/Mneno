@@ -136,7 +136,12 @@ class ContextBuilder:
 
             used_tokens += candidate.estimated_tokens
             included_content.add(normalized_content)
-            included_item = self._include(candidate, policy=policy, policy_name=policy_name, preset=preset)
+            included_item = self._include(
+                candidate,
+                policy=policy,
+                policy_name=policy_name,
+                preset=preset,
+            )
             included.append(included_item)
             decisions.append(self._decision(candidate, rank_by_memory_id, included=True, reason=included_item.reason))
 
@@ -304,7 +309,10 @@ def _format_context_text(included: list[ContextItem]) -> str:
     if not included:
         return "Relevant memories:"
     lines = ["Relevant memories:"]
-    lines.extend(f"- {item.content}" for item in included)
+    lines.extend(
+        f"- {'[CONFLICT WARNING] ' if 'marked conflicted' in item.reason.lower() else ''}{item.content}"
+        for item in included
+    )
     return "\n".join(lines)
 
 

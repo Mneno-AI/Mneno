@@ -123,6 +123,28 @@ def test_resolver_contradiction_marks_conflicts_with() -> None:
     assert "without explicit supersession signal" in updated.audit[-1].reason
 
 
+def test_contradiction_remains_visible_in_search_and_context_with_warnings() -> None:
+    client = MemoryClient()
+    old = client.add("User wants a React UI.", memory_type="preference")
+    new = client.add("User does not want a React UI.", memory_type="preference")
+
+    stored_old = client.get(old.id)
+    stored_new = client.get(new.id)
+    assert stored_old is not None and stored_old.status is MemoryStatus.CONFLICTED
+    assert stored_new is not None and stored_new.status is MemoryStatus.CONFLICTED
+    assert stored_old.superseded_by is None
+    search = client.search("React UI", limit=10)
+    assert {result.memory.id for result in search} >= {old.id, new.id}
+    assert all(
+        any("marked conflicted" in reason for reason in result.score.reasons)
+        for result in search
+        if result.memory.id in {old.id, new.id}
+    )
+    context = client.build_context("React UI", budget=50)
+    assert {item.memory_id for item in context.included} >= {old.id, new.id}
+    assert all("marked conflicted" in item.reason for item in context.included if item.memory_id in {old.id, new.id})
+
+
 def test_resolver_duplicate_does_not_delete_or_archive_by_default() -> None:
     existing = Memory(content="User prefers Python.")
     new = Memory(content="User prefers Python.")

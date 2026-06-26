@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from mneno import MemoryClient
+from mneno import ContextPolicy, MemoryClient
 from mneno.hierarchy import MemoryLayer
 from mneno.models import Memory, MemorySearchResult, MemoryStatus, utc_now
 from mneno.scoring.temporal import calculate_memory_score
@@ -156,6 +156,83 @@ def test_short_phrase_overlap_beats_scattered_terms_and_keyword_stuffing() -> No
 
     assert phrase.relevance > scattered.relevance
     assert "Short query phrase match" in phrase.reasons
+
+
+def test_metadata_tags_help_without_dominating_visible_content() -> None:
+    content_match = calculate_memory_score(
+        Memory(content="Quasar is the release codename.", importance=0.1),
+        query="quasar",
+    )
+    tag_only = calculate_memory_score(
+        Memory(content="Unrelated office inventory.", tags=["quasar"], importance=0.1),
+        query="quasar",
+    )
+    unrelated = calculate_memory_score(Memory(content="Unrelated office inventory.", importance=0.1), query="quasar")
+
+    assert content_match.relevance > tag_only.relevance > unrelated.relevance
+    assert "Matched metadata term: quasar" in tag_only.reasons
+
+
+def test_generic_memory_tag_does_not_displace_visible_content_match() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    visible = client.add("Memory retrieval preserves factual evidence.", importance=0.1)
+    client.add("Unrelated office inventory.", tags=["memory"], importance=0.1)
+
+    context = client.build_context("memory", policy=ContextPolicy(max_tokens=100, max_items=1))
+
+    assert context.included[0].memory_id == visible.id
+
+
+def test_broad_problem_query_still_finds_direct_problem_evidence() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    expected = client.add("The main problem is retrieval ranking under tight context budgets.", importance=0.1)
+    client.add("The office inventory was refreshed.", importance=1.0)
+
+    results = client.search("problem", limit=1)
+
+    assert results[0].memory.id == expected.id
+
+
+def test_operational_memory_does_not_beat_direct_factual_match() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    fact = client.add("SQLite is the benchmark database.", importance=0.5)
+    client.add(
+        "Current task is to update database documentation.",
+        memory_type="operational",
+        importance=0.5,
+    )
+
+    results = client.search("SQLite database", limit=2)
+
+    assert results[0].memory.id == fact.id
+
+
+def test_operational_memory_wins_for_task_continuation_query() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    operational = client.add(
+        "Continue development by fixing retrieval ranking tests.",
+        memory_type="operational",
+        importance=0.2,
+    )
+    client.add("The project uses deterministic local storage.", importance=0.9)
+
+    results = client.search("continue development", limit=2)
+
+    assert results[0].memory.id == operational.id
+
+
+def test_score_trace_separates_content_and_metadata_relevance() -> None:
+    client = MemoryClient(trace_enabled=True, auto_detect_conflicts=False)
+    client.add("Quasar is the release codename.", tags=["release"])
+
+    client.search("quasar release")
+
+    trace = client.get_trace(client.last_trace_id or "")
+    assert trace is not None
+    event = next(item for item in trace.events if item.event_type == "score_calculated")
+    assert event.data["content_lexical_relevance_component"] > 0
+    assert event.data["metadata_lexical_relevance_component"] > 0
+    assert event.data["matched_metadata_terms"] == ["release"]
 
 
 def test_client_delete() -> None:

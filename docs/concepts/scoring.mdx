@@ -9,7 +9,9 @@ Mneno uses a multi-signal scoring engine to rank memories. This ensures that the
 
 The final score of a memory is a weighted average of several signals:
 
-- **Relevance**: How well the memory matches the search query. Mneno uses both keyword overlap and optional semantic similarity.
+- **Relevance**: How well the memory matches the search query. Exact content phrases outrank loose overlap, while
+  tag/source matches provide a capped supporting signal instead of being treated as visible content. Optional semantic
+  similarity remains provider-backed.
 - **Importance**: A manual or model-assigned priority score (0.0 to 1.0).
 - **Recency**: How recently the memory was updated. Scores decay over time based on a configurable half-life.
 - **Frequency**: How often the memory has been accessed by the agent.
@@ -34,6 +36,9 @@ for result in results:
 - `High importance memory`
 - `Recently updated`
 - `Frequently accessed memory`
+
+Content and metadata lexical relevance are recorded separately in retrieval traces so ranking decisions remain
+inspectable. Existing layer and session adjustments continue to apply after relevance scoring.
 
 ## Customizing Weights
 

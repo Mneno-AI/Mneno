@@ -4,7 +4,7 @@ from pytest import raises
 
 from mneno import ContextBudget, ContextPackage, ContextPolicy, MemoryClient
 from mneno.context import ContextPreset
-from mneno.models import Memory, MemoryType, utc_now
+from mneno.models import Memory, MemoryStatus, MemoryType, utc_now
 
 
 def test_build_context_returns_context_package() -> None:
@@ -421,3 +421,64 @@ def test_agent_state_preset_preserves_operational_and_preference_memories() -> N
 
     assert {item.memory_id for item in context.included} == {operational.id, preference.id}
     assert context.policy.preserve_memory_types == [MemoryType.OPERATIONAL, MemoryType.PREFERENCE]
+
+
+def test_broad_context_prompt_keeps_top_scored_supporting_evidence() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    retrieval_session = client.create_session(title="Retrieval", make_active=False)
+    operations_session = client.create_session(title="Operations", make_active=False)
+    first = client.add(
+        "The ranking problem drops factual evidence under tight budgets.",
+        importance=0.9,
+        tags=["retrieval"],
+        session_id=retrieval_session.id,
+    )
+    client.add(
+        "The ranking problem also affects broad prompts.",
+        importance=0.89,
+        tags=["retrieval"],
+        session_id=retrieval_session.id,
+    )
+    diverse = client.add(
+        "The deployment problem is stale configuration visibility.",
+        importance=0.1,
+        tags=["operations"],
+        session_id=operations_session.id,
+    )
+    policy = ContextPolicy(max_tokens=100, max_items=2)
+
+    context = client.build_context("problem", policy=policy)
+
+    assert context.included[0].memory_id == first.id
+    assert context.included[1].memory_id != diverse.id
+
+
+def test_distinct_overlapping_memories_are_not_fuzzy_deduplicated() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    first = client.add("Python retrieval ranking preserves rare factual evidence under budget.", importance=0.9)
+    duplicate = client.add(
+        "Python retrieval ranking preserves rare factual evidence under budget today.",
+        importance=0.8,
+    )
+    context = client.build_context(
+        "retrieval ranking",
+        policy=ContextPolicy(max_tokens=100, max_items=2),
+    )
+
+    assert {item.memory_id for item in context.included} == {first.id, duplicate.id}
+
+
+def test_conflicted_context_memory_has_visible_warning() -> None:
+    client = MemoryClient(auto_detect_conflicts=False)
+    conflicted = Memory(
+        content="The dashboard port is 3000.",
+        status=MemoryStatus.CONFLICTED,
+        conflicts_with=["other-port-memory"],
+    )
+    client.store.add(conflicted)
+
+    context = client.build_context("dashboard port", budget=20)
+
+    assert context.included[0].memory_id == conflicted.id
+    assert "marked conflicted" in context.included[0].reason
+    assert "[CONFLICT WARNING]" in context.text
