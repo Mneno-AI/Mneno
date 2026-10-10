@@ -1,5 +1,30 @@
 # Phase A engineering summary
 
+## Completion milestone — 0.5.0
+
+**Phase A Core: PASS. Phase B readiness: GO for controlled local retrieval experiments.
+Release readiness: READY for review and the existing release workflow; not published.**
+
+All five P0 blockers are resolved within the documented built-in storage contracts. Imports/restore and compaction use
+staged atomic transactions; append collisions remap structural relationships; JSON coordinates cooperating writers and
+rejects stale snapshots; compaction retains archived history; mixed datetime comparisons use UTC instant keys.
+The three former strict xfails are ordinary passing regressions. Final checks: **569 passed, 0 failed, 0 skipped,
+0 xfailed**, Ruff/format/mypy (93 source files), sdist/wheel, and installed-wheel SDK/CLI/version/upgrade smoke checks.
+
+Version **0.4.1 → 0.5.0** reflects archival-count semantics and the required custom-store atomic batch capability.
+JSON/export v1 and SQLite v2 remain readable without migration. Scoring formulas/weights and public retrieval schemas are
+unchanged. No Bench changes, provider/model calls, retrieval algorithm, runtime dependency, or package publication.
+
+[DATA_INTEGRITY_HARDENING.md](DATA_INTEGRITY_HARDENING.md) is the current completion evidence, exact validation commands,
+backend guarantee matrix, compatibility guidance, remaining P1/P2 risks, and Phase B experiment recommendation. Supported
+precommit failures preserve state; JSON post-rename sync errors explicitly report `committed=True`, not a fictitious
+rollback. Windows/Linux/multiple-Python checks and actual power-loss tests remain unexecuted locally.
+
+## Initial Phase A audit — historical 0.4.1 report
+
+The following verdict/results describe the initial audit at `ffa0950`, before this completion milestone. Its open-blocker
+statements and 455/3 test counts are historical, superseded by the evidence above.
+
 ## Executive verdict
 
 **Phase A Core: PARTIAL. Phase B readiness: NO-GO for retrieval-engine changes.**

@@ -8,6 +8,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
+from mneno._time import as_utc
 from mneno.compaction.policies import CompactionPolicy
 from mneno.extraction.prompts import build_compaction_merge_prompt
 from mneno.hierarchy.layers import LAYER_PRIORITY, MemoryLayer
@@ -53,8 +54,19 @@ class CompactionEngine:
     ) -> CompactionDiff:
         """Analyze memories and return an explainable compaction diff."""
         active_policy = policy or self.policy
+        memories = [
+            memory
+            for memory in memories
+            if memory.status in {MemoryStatus.ACTIVE, MemoryStatus.CONFLICTED}
+            and memory.layer is not MemoryLayer.ARCHIVED
+        ]
         scores = {memory.id: self.scorer.score(memory) for memory in memories}
-        merged_groups = self._find_merge_groups(memories) if active_policy.merge_duplicates else []
+        conflict_targets = {identifier for memory in memories for identifier in memory.conflicts_with}
+        merged_groups = (
+            self._find_merge_groups([memory for memory in memories if memory.id not in conflict_targets])
+            if active_policy.merge_duplicates
+            else []
+        )
         merged_ids = {memory.id for group in merged_groups for memory in group}
 
         kept: list[CompactionDecision] = []
@@ -84,7 +96,11 @@ class CompactionEngine:
                 continue
 
             score = scores[memory.id]
-            keep_reason = self._keep_reason(memory, score, active_policy)
+            keep_reason = (
+                "Kept because unresolved conflict evidence must be preserved"
+                if memory.id in conflict_targets
+                else self._keep_reason(memory, score, active_policy)
+            )
             if keep_reason is not None:
                 kept.append(self._decision(memory, CompactionDecisionType.KEPT, keep_reason, score))
                 continue
@@ -164,18 +180,27 @@ class CompactionEngine:
         return overlap >= NEAR_DUPLICATE_THRESHOLD
 
     def _merge_group(self, group: list[Memory], *, use_llm: bool = False) -> Memory:
-        best = max(group, key=lambda memory: (memory.importance, len(memory.content), memory.updated_at))
+        best = max(
+            group, key=lambda memory: (memory.importance, len(memory.content), as_utc(memory.updated_at), memory.id)
+        )
         metadata = _merge_metadata(group)
         metadata["source_memory_ids"] = [memory.id for memory in group]
         metadata["source_layers"] = sorted({memory.layer.value for memory in group})
         memory_type = _merged_memory_type(group)
         content = self._llm_merge_content(group) if use_llm and self.llm_provider is not None else None
+        session_ids = {memory.session_id for memory in group}
+        session_id = next(iter(session_ids)) if len(session_ids) == 1 else None
+        sequence_index = (
+            max((memory.sequence_index for memory in group if memory.sequence_index is not None), default=-1) + 1
+        )
         return Memory(
+            session_id=session_id,
+            sequence_index=sequence_index if session_id is not None else None,
             content=content or f"Merged memory: {best.content}",
             memory_type=memory_type,
             layer=_merged_layer(group),
             metadata=metadata,
-            created_at=min(memory.created_at for memory in group),
+            created_at=min((memory.created_at for memory in group), key=as_utc),
             updated_at=utc_now(),
             importance=max(memory.importance for memory in group),
             access_count=sum(memory.access_count for memory in group),
@@ -223,9 +248,7 @@ class CompactionEngine:
     def _is_stale(self, memory: Memory, policy: CompactionPolicy) -> bool:
         if policy.stale_after_days is None:
             return False
-        updated_at = memory.updated_at
-        if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=UTC)
+        updated_at = as_utc(memory.updated_at)
         age_days = (datetime.now(UTC) - updated_at).days
         return age_days >= policy.stale_after_days
 
@@ -379,4 +402,4 @@ def _merged_layer(group: list[Memory]) -> MemoryLayer:
 
 def _max_optional_datetime(values: Iterable[datetime | None]) -> datetime | None:
     datetimes = [value for value in values if isinstance(value, datetime)]
-    return max(datetimes) if datetimes else None
+    return max(datetimes, key=as_utc) if datetimes else None

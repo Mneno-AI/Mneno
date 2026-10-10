@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from mneno._time import as_utc
 from mneno.hierarchy.layers import LAYER_SCORE_ADJUSTMENT, MemoryLayer
 from mneno.models import Memory, MemoryPolicy, MemoryScore, MemoryStatus
 from mneno.providers.embedding import EmbeddingProvider
@@ -100,9 +101,7 @@ def calculate_memory_score(
 ) -> MemoryScore:
     """Calculate a bounded, explainable score for a memory."""
     active_policy = policy or MemoryPolicy()
-    now = reference_time or datetime.now(UTC)
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=UTC)
+    now = as_utc(reference_time or datetime.now(UTC))
     recency = _recency_score(memory.updated_at, half_life_days=active_policy.recency_half_life_days, now=now)
     frequency = min(memory.access_count / 10.0, 1.0)
     freshness = _freshness_score(memory.created_at, decay_days=active_policy.freshness_decay_days, now=now)
@@ -153,16 +152,14 @@ def calculate_memory_score(
 
 
 def _recency_score(updated_at: datetime, *, half_life_days: float, now: datetime) -> float:
-    if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=UTC)
+    updated_at = as_utc(updated_at)
     age_seconds = max((now - updated_at).total_seconds(), 0.0)
     half_life_seconds = half_life_days * 24 * 60 * 60
     return math.exp(-math.log(2) * age_seconds / half_life_seconds)
 
 
 def _freshness_score(created_at: datetime, *, decay_days: float, now: datetime) -> float:
-    if created_at.tzinfo is None:
-        created_at = created_at.replace(tzinfo=UTC)
+    created_at = as_utc(created_at)
     age_days = max((now - created_at).total_seconds(), 0.0) / (24 * 60 * 60)
     return max(1.0 - (age_days / decay_days), 0.0)
 

@@ -3,6 +3,32 @@ title: "Changelog"
 description: "Updates and improvements to Mneno."
 ---
 
+<Update label="October 10, 2026" description="v0.5.0">
+
+### Data integrity fixes
+
+- Imports and restores commit memory/session batches atomically on the built-in stores, with rollback before commit.
+- Append collisions remap session membership, conflict, supersession, audit links, and compaction lineage together.
+- JSON writers coordinate through a stable lock file and reject stale snapshots with `StorageConflictError`; refresh and
+  recompute before retrying. Unique temporary snapshots are synced before atomic replacement. A directory-sync failure
+  after replacement raises `StorageCommitError(committed=True)`; inspect state before retrying.
+- Compaction retains source records, original provenance, audit history, and session membership as archived history.
+  Results and source transitions commit together. Unresolved conflict evidence remains protected.
+- Mixed naive/aware datetime comparisons consistently interpret legacy naive values as UTC without migrating timestamps.
+
+### Compatibility changes
+
+- `list()` and exports include archived compaction sources. Compaction counts describe the eligible active view,
+  not physical record count. Default retrieval still excludes archived/superseded records.
+- Custom stores must implement the optional `AtomicMemoryStore.transaction()` capability for import/restore/compaction;
+  unsupported stores fail before mutation. Ordinary record operations retain the `MemoryStore` interface.
+- Duplicate IDs within import payloads are rejected before mutation. Invalid individual append items still report errors;
+  accepted items commit as one batch. Unresolved historical links are preserved with additive `ImportResult.warnings`.
+- JSON/storage export envelopes remain version 1; SQLite remains schema 2. Existing records require no migration.
+- No dependencies, retrieval algorithms, scoring weights, or cloud requirements were added.
+
+</Update>
+
 <Update label="June 18, 2026" description="v0.4.1">
 
 ### Mneno CLI Agent Setup

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from mneno._time import as_utc
 from mneno.context.budget import estimate_tokens
 from mneno.context.package import ContextItem, ContextPackage, ContextStats, ExcludedContextItem
 from mneno.context.policies import ContextPolicy
@@ -190,7 +191,7 @@ class ContextBuilder:
             return sorted(
                 candidates,
                 key=lambda item: (
-                    item.memory.updated_at,
+                    as_utc(item.memory.updated_at),
                     LAYER_PRIORITY[item.memory.layer],
                     item.score.total,
                     item.memory.id,
@@ -213,7 +214,7 @@ class ContextBuilder:
             key=lambda item: (
                 item.score.total,
                 LAYER_PRIORITY[item.memory.layer],
-                item.memory.updated_at,
+                as_utc(item.memory.updated_at),
                 item.memory.id,
             ),
             reverse=True,

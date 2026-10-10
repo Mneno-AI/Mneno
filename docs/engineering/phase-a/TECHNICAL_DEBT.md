@@ -1,5 +1,30 @@
 # Phase A technical debt register
 
+## Completion disposition — 0.5.0
+
+| ID | Current status | Implementation and executed evidence |
+| --- | --- | --- |
+| A-10 High P0 | Closed | `io/importers.py:_id_mapping/_remap_memory/_check_relationships`; original collision regression plus backend-parity relationship/reopen/rollback tests |
+| A-11 High P0 | Closed | `storage/transactions.py:AtomicMemoryStore`, three `transaction()` implementations; original replacement regression, staged/file/SQL fault injection and unsupported-custom-store rejection |
+| A-12 High P0 | Closed | `_time.py:as_utc` across comparison sites; original tied-search regression, UTC/naive/offset/timeline/session/compaction/reopen tests |
+| A-13 High P0 | Closed | `client.py:compact`, `compaction/engine.py`; durable archived sources/audit/session lineage, multi-group transition/commit failure and conflict tests |
+| A-18 High P0 | Closed for cooperating local writers | `JSONFileStorage._locked/transaction/_write`; stale-instance/session rejection, thread/process barriers, retry/reopen, crash/lock-release and partial-write tests |
+
+The supported limits and precise commit/durability boundaries are in
+[DATA_INTEGRITY_HARDENING.md](DATA_INTEGRITY_HARDENING.md). Final validation: 569 passed, no remaining xfails.
+
+New follow-ups: **A-30 Medium P1** — full-snapshot staging/SQLite rewrite and JSON validation/locking increase memory,
+write amplification and lock duration; profile before optimizing. **A-31 Medium P1** — archived compaction history grows
+physical storage; define explicit audited retention separately. **A-32 Medium P1** — Windows locking/directory-sync limits
+need platform validation. **A-33 Medium P1** — the optional capability does not automatically make every multi-call SDK
+add/lifecycle/session/export operation transactional; document/use explicit staged batches where needed. These limits do
+not reopen the five repaired operations' guarantees.
+
+## Initial register — historical 0.4.1 evidence
+
+The register below preserves what was observed and recommended in the initial audit; its five “open” P0 dispositions and
+strict xfails have been superseded by the closure table above. Other deferred findings remain applicable.
+
 Priority is operational: P0 threatens data/trust/reproducibility; P1 is a narrow engineering concern; P2 is deferred design/performance work. Severity is independent of priority. “Confirmed” means source inspection and/or an executed reproducer, not a historical benchmark inference. All paths below are relative to the repository root. Regression symbols live in `tests/test_phase_a.py` unless stated otherwise.
 
 ## Repaired findings

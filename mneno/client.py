@@ -8,6 +8,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, Literal
 
+from mneno._time import as_utc
 from mneno.compaction.engine import CompactionEngine
 from mneno.compaction.policies import CompactionPolicy
 from mneno.conflicts import (
@@ -52,6 +53,7 @@ from mneno.models import (
     AddMemoryRequest,
     CompactionDiff,
     Memory,
+    MemoryAuditEvent,
     MemoryPolicy,
     MemoryScore,
     MemorySearchResult,
@@ -76,6 +78,7 @@ from mneno.scoring.temporal import TemporalMemoryScorer, score_trace_data, sessi
 from mneno.sessions import ContinuityManager, ContinuityResult, Session, SessionManager, Timeline
 from mneno.storage.base import MemoryStore
 from mneno.storage.memory import InMemoryMemoryStore
+from mneno.storage.transactions import atomic_transaction
 
 
 class MemoryClient:
@@ -808,7 +811,7 @@ class MemoryClient:
                 key=lambda item: (
                     item[1].total,
                     item[0].session_id == active_session_id if active_session_id is not None else False,
-                    item[0].updated_at,
+                    as_utc(item[0].updated_at),
                     item[0].id,
                 ),
                 reverse=True,
@@ -1187,25 +1190,112 @@ class MemoryClient:
             message="Compaction policy selected",
             data=active_policy.model_dump(mode="json"),
         )
-        diff = self.compactor.compact(self.store.list(), policy=policy, use_llm=self._should_use_llm(use_llm))
-        self._trace_compaction_decisions(trace, diff)
-        for memory in diff.created:
-            self.store.add(memory)
+        diff: CompactionDiff | None = None
+        try:
+            with atomic_transaction(self.store) as staged:
+                diff = self.compactor.compact(staged.list(), policy=policy, use_llm=self._should_use_llm(use_llm))
+                now = utc_now()
+                for memory in diff.created:
+                    source_ids = memory.metadata["source_memory_ids"]
+                    event = MemoryAuditEvent(
+                        event_type="compaction_created",
+                        timestamp=now,
+                        reason="Created from retained historical sources",
+                        related_memory_ids=source_ids,
+                        metadata={"policy": active_policy.model_dump(mode="json")},
+                    )
+                    memory.audit = [*memory.audit, event]
+                    if memory.session_id is not None:
+                        session = staged.get_session(memory.session_id)
+                        if session is None:
+                            raise ValueError(f"Compaction session not found: {memory.session_id}")
+                        memory.sequence_index = (
+                            max(
+                                (
+                                    item.sequence_index
+                                    for item in staged.list()
+                                    if item.session_id == memory.session_id and item.sequence_index is not None
+                                ),
+                                default=-1,
+                            )
+                            + 1
+                        )
+                        staged.update_session(
+                            session.model_copy(
+                                update={"memory_ids": [*session.memory_ids, memory.id], "updated_at": now}
+                            )
+                        )
+                    staged.add(memory)
+                for decision in [*diff.discarded, *diff.merged]:
+                    source = staged.get(decision.memory_id)
+                    if source is None:
+                        raise ValueError(f"Compaction source disappeared: {decision.memory_id}")
+                    event = MemoryAuditEvent(
+                        event_type="compaction_archived",
+                        timestamp=now,
+                        reason=decision.reason,
+                        related_memory_ids=[decision.resulting_memory_id] if decision.resulting_memory_id else [],
+                        metadata={
+                            "previous_status": source.status.value,
+                            "previous_layer": source.layer.value,
+                            "previous_updated_at": source.updated_at.isoformat(),
+                            "policy": active_policy.model_dump(mode="json"),
+                        },
+                    )
+                    staged.update(
+                        source.model_copy(
+                            update={
+                                "status": MemoryStatus.ARCHIVED,
+                                "layer": MemoryLayer.ARCHIVED,
+                                "updated_at": now,
+                                "audit": [*source.audit, event],
+                            }
+                        )
+                    )
+            self._trace_compaction_decisions(trace, diff)
+            for memory in diff.created:
+                self._trace_event(
+                    trace,
+                    event_type="storage_mutation",
+                    message="Added compacted memory",
+                    memory_id=memory.id,
+                    data={"action": "insert", "committed": True},
+                )
+            for decision in [*diff.discarded, *diff.merged]:
+                self._trace_event(
+                    trace,
+                    event_type="storage_mutation",
+                    message="Archived compaction source",
+                    memory_id=decision.memory_id,
+                    data={"action": "archive", "committed": True},
+                )
             self._trace_event(
                 trace,
-                event_type="storage_mutation",
-                message=f"Added compacted memory {memory.id}",
-                memory_id=memory.id,
+                event_type="compaction_committed",
+                message="Compaction batch committed",
+                data={
+                    "created_ids": [memory.id for memory in diff.created],
+                    "archived_ids": [decision.memory_id for decision in [*diff.discarded, *diff.merged]],
+                },
             )
-        for decision in [*diff.discarded, *diff.merged]:
-            self.store.delete(decision.memory_id)
+        except Exception as exc:
             self._trace_event(
                 trace,
-                event_type="storage_mutation",
-                message=f"Deleted compacted memory {decision.memory_id}",
-                memory_id=decision.memory_id,
+                event_type="operation_failed",
+                message="Compaction failed",
+                data={
+                    "error_type": type(exc).__name__,
+                    "committed": getattr(exc, "committed", False),
+                    "created_ids": [memory.id for memory in diff.created] if diff is not None else [],
+                    "source_ids": [decision.memory_id for decision in [*diff.discarded, *diff.merged]]
+                    if diff is not None
+                    else [],
+                },
             )
+            self._end_trace(trace, summary="Compaction failed", status="error")
+            raise
         trace_id = self._end_trace(trace, summary=diff.summary)
+        assert diff is not None
         return diff.model_copy(update={"trace_id": trace_id})
 
     def extract_memories(self, text: str, *, use_llm: bool | None = None) -> ExtractionResult:

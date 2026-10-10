@@ -1,5 +1,28 @@
 # Retrieval correctness and reproducibility
 
+## Completion assessment — 0.5.0
+
+The mixed-timezone blocker A-12 is repaired: `_time.as_utc` compares naive-as-UTC and aware-as-UTC instants without rewriting
+stored representations. Search/context preserve existing score and ID tie keys; existing semantic, session, timeline,
+compaction, hierarchy, SQLite ordering, CLI, and trace-duration comparisons use the same convention. Offset/legacy/reopen
+and malformed-input tests passed. Fixed persisted state, reference time, configuration, and deterministic providers
+remain required: searches still record access and ordinary wall time still advances.
+
+A-10/A-11/A-13/A-18 are also closed through structural import mapping, explicit staged transactions, retained compaction
+history, and safe JSON writer coordination. Default inactive filtering/conflict warnings remain intact. Compaction stats
+now describe its eligible view; physical records include archived sources. Custom import/restore/compaction stores need
+atomic capability. Historical dangling links are preserved with `ImportResult.warnings`; known membership contradictions
+reject the batch. Storage envelopes remain unchanged.
+
+All three prior xfails now pass as normal tests. Full validation: **569 passed, 0 failed/skipped/xfailed**.
+[DATA_INTEGRITY_HARDENING.md](DATA_INTEGRITY_HARDENING.md) records fault boundaries, tests, compatibility and release gates.
+No scoring formulas, weights, normalization, or retrieval algorithms were changed.
+
+## Initial correctness report — historical 0.4.1
+
+The following assessment and coverage counts describe the pre-completion audit. Its timezone/import/transaction blockers
+are retained as historical evidence and superseded above.
+
 ## Verdict
 
 Default local retrieval is explainable and uses stable ID tie-breaking. A fixed saved state, fixed scoring time, fixed policy/session configuration, and deterministic providers reproduce IDs and scores. Unconditional determinism is **not certified**: mixed timezone records fail tied sorting (A-12), queries update access state, and custom providers may be nondeterministic. No scoring weight, lexical normalization rule, or retrieval algorithm was changed.

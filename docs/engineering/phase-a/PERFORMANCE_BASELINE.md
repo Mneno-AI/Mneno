@@ -1,5 +1,13 @@
 # Local performance baseline
 
+## Completion version caveat
+
+The measurements below were executed for the initial **0.4.1** audit. They are preserved as historical measurements, not
+relabelled as 0.5.0 results. The completion milestone adds snapshot validation/copying, JSON locking/refreshed reads,
+SQLite batch snapshot rewrites, and archived compaction history. These can increase costs. No new performance numbers
+are claimed. Reprofile 0.5.0 stage costs before indexed candidate experiments; see
+[DATA_INTEGRITY_HARDENING.md](DATA_INTEGRITY_HARDENING.md).
+
 ## Environment and scope
 
 Executed on macOS-27.0.1-arm64-arm-64bit, Apple M5 Pro (15 logical CPUs), Python 3.11.17, arm64. Synthetic local records only; no external benchmark/model/provider calls. Versions: Pydantic 2.14.0, Typer 0.27.3, Rich 14.3.4, pytest 9.1.1, Ruff 0.17.0, mypy 2.4.0. Host activity, power mode, and physical RAM were not controlled/measured.

@@ -1,5 +1,24 @@
 # Phase A architecture audit
 
+## Completion architecture delta — 0.5.0
+
+Current package version is 0.5.0. `MemoryStore` remains unchanged; `storage/transactions.py:AtomicMemoryStore` is an optional
+batch capability. `InMemoryMemoryStore.transaction` stages isolated validated maps under an instance lock;
+`JSONFileStorage.transaction` locks a stable sidecar, checks snapshot revision and stages one atomic file replacement;
+`SQLiteStorage.transaction/_replace_snapshot` stages and commits memory/session rows under `BEGIN IMMEDIATE`.
+
+`io/importers.py:_id_mapping/_remap_memory/_check_relationships` replaces independent collision cloning with whole-batch
+structural mapping and validation. `client.py:compact` retains source records as archived audit history and commits all
+results/transitions/session additions together. `compaction/engine.py` excludes inactive history and protects one-sided
+conflict targets. `_time.py:as_utc` centralizes instant-comparison policy across affected modules. Public storage envelopes
+remain JSON/export v1 and SQLite v2; default retrieval formulas and stage contracts remain intact.
+
+See [DATA_INTEGRITY_HARDENING.md](DATA_INTEGRITY_HARDENING.md) for exact files, backend guarantees, 569-test validation,
+compatibility changes, and failure boundaries. The detailed initial inventory below remains historical source evidence at
+0.4.1; cache/destructive-compaction/independent-import statements are superseded by this delta.
+
+## Initial architecture audit — historical 0.4.1
+
 ## Audit basis
 
 Repository-only audit of commit `19aab28f295a811039a75cf72c9e44920a5a142b`, followed by the stabilization changes described below. Initial `git status --short` was empty. No existing user modifications were present. Read root `AGENTS.md`, `CONTRIBUTING.md`, documentation instructions, packaging, workflows, implementation modules, and the relevant test suites. These reports are engineering Markdown deliverables, not new Mintlify navigation pages. No other repository, dataset, provider endpoint, or benchmark service was accessed.

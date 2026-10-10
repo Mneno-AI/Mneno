@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mneno._time import as_utc
 from mneno.hierarchy.layers import LAYER_PRIORITY, LAYER_SCORE_ADJUSTMENT
 from mneno.models import Memory
 from mneno.providers.embedding import EmbeddingProvider
@@ -52,7 +53,7 @@ class SemanticRetriever:
             for memory, memory_embedding in zip(memories, embeddings[1:], strict=True)
         ]
         scored.sort(
-            key=lambda item: (item[1], LAYER_PRIORITY[item[0].layer], item[0].updated_at, item[0].id),
+            key=lambda item: (item[1], LAYER_PRIORITY[item[0].layer], as_utc(item[0].updated_at), item[0].id),
             reverse=True,
         )
         if top_k is not None:

@@ -305,7 +305,6 @@ def test_compaction_preview_does_not_mutate_source_metadata() -> None:
     assert client.get(old.id).metadata == {"values": [1]}
 
 
-@pytest.mark.xfail(strict=True, reason="A-10: append collision relationship remapping requires a separate import fix")
 def test_append_collision_remaps_session_membership() -> None:
     client = MemoryClient(auto_detect_conflicts=False)
     session = client.create_session(title="Source session")
@@ -317,7 +316,6 @@ def test_append_collision_remaps_session_membership() -> None:
     assert new_session.memory_ids == [copied.id]
 
 
-@pytest.mark.xfail(strict=True, reason="A-11: replacement import needs atomic backend batch support")
 def test_replacement_storage_failure_preserves_original() -> None:
     class FailingStorage(InMemoryStorage):
         def add(self, memory):
@@ -332,7 +330,6 @@ def test_replacement_storage_failure_preserves_original() -> None:
     assert store.get(original.id) == original
 
 
-@pytest.mark.xfail(strict=True, reason="A-12: mixed naive/aware timestamp sorting is not normalized")
 def test_mixed_timezone_equal_score_retrieval() -> None:
     from mneno.scoring import TemporalMemoryScorer
 

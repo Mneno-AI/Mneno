@@ -210,7 +210,9 @@ for decision in diff.discarded:
 ```
 
 Use `preview_compaction()` to inspect decisions without mutating storage. Use `compact()` to apply the diff to the
-local in-memory store.
+selected built-in store atomically. Merged/discarded sources remain archived with durable provenance; `list()` and
+exports include that history, while default retrieval excludes it. Diff counts describe the eligible active view.
+Custom stores need the optional atomic transaction capability for compaction and import/restore.
 
 ## Build Explainable Context
 

@@ -33,7 +33,7 @@ client = MemoryClient(storage=JSONFileStorage("data/memories.json"))
 ```
 
 - **Pros**: Human-readable, easy to debug, easy to version control.
-- **Cons**: Slower for large datasets (entire file is rewritten on every update; reads use an instance-local cached snapshot).
+- **Cons**: Slower for large datasets (entire file is rewritten on every update; reads reload the latest committed snapshot under a local lock).
 
 ### SQLite Storage
 
@@ -85,5 +85,43 @@ class MyCustomStorage(MemoryStore):
 
 Duplicate memory IDs are rejected by all built-in stores; use an explicit update to replace a record.
 Deleting a memory also removes its ID from session membership. JSON write failures restore the cached committed state.
-JSON storage requires a single writer; separate instances do not coordinate updates.
+JSON storage coordinates cooperating local writers and rejects stale snapshots; see the transaction contract below.
 SQLite refuses databases with a schema version newer than this implementation.
+
+
+## Atomic batch capability (0.5.0)
+
+All built-in stores expose `transaction()` as a context manager yielding an isolated `MemoryStore`. Mutate the yielded
+store, not the original. A successful exit commits once; an exception before commit leaves the original snapshot intact.
+Imports (all modes), restore, and compaction require this capability. Other SDK operations are not automatically batch
+transactions. Custom implementations can opt into `mneno.storage.AtomicMemoryStore`; unsupported batch operations raise
+`TypeError` before changing data. Implementations must provide real commit/rollback, not compensating writes.
+
+```python
+with client.store.transaction() as staged:
+    staged.add(memory)
+    staged.add_session(session)
+```
+
+In-memory transactions serialize cooperating threads on the same instance and validate before swapping memory/session
+maps. SQLite uses `BEGIN IMMEDIATE` and one commit for the complete batch, including sessions. SQLite is recommended for
+concurrent applications and larger stores; staged transactions currently read and rewrite the full snapshot.
+
+JSON uses a stable `<filename>.lock` sidecar (do not remove it while clients run), a content-hash revision check, and a
+unique temporary file in the same directory. It syncs the temporary file before atomic rename and the parent directory
+after rename on POSIX. Reads refresh the instance snapshot. A stale transaction raises `StorageConflictError`: read the
+latest state, recompute the operation, then retry. This is optimistic concurrency, not automatic merging. Standalone
+`update()` remains whole-record replacement; use a transaction when deriving an update from the current record.
+
+Failure before rename preserves the committed file and cached state. If directory sync fails after rename,
+`StorageCommitError.committed` is `True`: the complete replacement is visible, but power-loss durability is uncertain.
+Do not blindly retry that operation. No universal durability claim is made for network filesystems, noncooperating file
+writers, hardware failure, or Windows directory sync. POSIX locks release automatically on process exit; Windows uses
+standard-library byte-range locks, which may report contention timeout. Lock files persist intentionally.
+
+Existing JSON/export envelopes (v1), SQLite schema (v2), and legacy datetime representations are unchanged. Legacy naive
+timestamps mean UTC for instant comparisons. Aware dates whose UTC instant lies outside Python's year range retain their
+offset for comparison rather than overflowing. Unsupported/malformed model values still raise validation errors.
+
+See [the integrity milestone report](https://github.com/Mneno-AI/Mneno/blob/phase-a-core-stabilization/docs/engineering/phase-a/DATA_INTEGRITY_HARDENING.md)
+for the backend guarantees, fault-injection tests, and compatibility notes.

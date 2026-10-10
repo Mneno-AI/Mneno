@@ -11,6 +11,7 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 
+from mneno._time import as_utc
 from mneno.cli.output import console, error, warning
 from mneno.cli.workspace import WORKSPACE_NOT_FOUND_MESSAGE, find_workspace, get_workspace_client
 
@@ -123,7 +124,7 @@ def _sort_time(memory: object) -> datetime:
     value = updated_at if isinstance(updated_at, datetime) else created_at
     if not isinstance(value, datetime):
         return datetime.min.replace(tzinfo=UTC)
-    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return as_utc(value)
 
 
 def _normalize_memory(memory: object) -> RecentOutputItem:

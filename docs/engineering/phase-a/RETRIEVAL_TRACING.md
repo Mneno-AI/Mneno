@@ -1,5 +1,21 @@
 # Retrieval tracing contract
 
+## Completion trace delta — 0.5.0
+
+Retrieval return schemas, stage fields and v1 trace/benchmark envelopes remain unchanged. UTC comparison normalization
+fixes replay failures without adding ranking signals. Trace duration subtraction uses the same instant convention.
+
+Compaction retains `storage_mutation` events, now emitted after commit with `action=insert/archive` and `committed=true`.
+`compaction_committed` adds created/archived ID lists. Precommit failure completes an error trace without successful
+mutation events. `operation_failed` includes exception type, commit status, and planned created/source IDs; planned IDs
+on a failed precommit operation must not be interpreted as persisted results. A post-rename directory-sync failure uses
+`committed=true`: the complete snapshot exists but durability confirmation failed. No content/provider payload is added
+by these events. Historical lineage is durable in Memory.audit; these traces remain optional and in-memory.
+
+External Bench consumers should accept additive event/data keys, distinguish commit status from operation status, and
+interpret compaction counts as eligible-view counts rather than physical record counts. Exact tests and backend limits:
+[DATA_INTEGRITY_HARDENING.md](DATA_INTEGRITY_HARDENING.md). No Bench files were modified.
+
 ## Existing architecture and compatibility
 
 `observability/trace.py:OperationTrace` has id, operation, started/completed timestamps, duration_ms, events, status, summary, metadata. `events.py:TraceEvent` has event/trace ID, operation/type/timestamp/message, optional memory/session IDs, and structured data. `recorder.py:TraceRecorder` retains traces locally; `inspector.py:TraceInspector` filters and explains events. No network/export upload, OpenTelemetry, or persistent trace backend exists. Supplying a recorder enables tracing; otherwise tracing is disabled by default.
