@@ -210,7 +210,9 @@ for decision in diff.discarded:
 ```
 
 Use `preview_compaction()` to inspect decisions without mutating storage. Use `compact()` to apply the diff to the
-local in-memory store.
+selected built-in store atomically. Merged/discarded sources remain archived with durable provenance; `list()` and
+exports include that history, while default retrieval excludes it. Diff counts describe the eligible active view.
+Custom stores need the optional atomic transaction capability for compaction and import/restore.
 
 ## Build Explainable Context
 
@@ -624,16 +626,12 @@ from mneno import MemoryClient
 
 client = MemoryClient()
 
-result = client.extract_memories(
-    "The user is building Mneno. They prefer Python 3.11."
-)
+result = client.extract_memories("The user is building Mneno. They prefer Python 3.11.")
 
 for memory in result.extracted:
     print(memory.content, memory.memory_type, memory.reason)
 
-client.add_from_text(
-    "The user is building Mneno. They prefer Python 3.11."
-)
+client.add_from_text("The user is building Mneno. They prefer Python 3.11.")
 ```
 
 ## LLM-Assisted Extraction

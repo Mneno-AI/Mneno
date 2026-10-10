@@ -66,3 +66,11 @@ client.restore("backups/mneno-backup-20260524-120000.json", mode="append")
 ## Validation
 
 Mneno validates the format and version of all incoming JSON payloads during import. If a file is corrupted or uses an unsupported format version, Mneno will raise a clear error to prevent data corruption.
+
+## Replacement safety and append relationships
+
+Replacement import validates all memory/session models and duplicate IDs before clearing existing data.
+Invalid replacement input raises an error and preserves the original store. Other import modes still support partial success.
+A valid replacement followed by a storage failure is not atomic; retain a separate backup before replacement or restore.
+Append mode regenerates colliding IDs but currently does not remap session/conflict/audit relationships.
+Use an isolated empty destination when preserving those relationships is essential.

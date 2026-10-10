@@ -11,7 +11,7 @@ The compaction engine analyzes your memories and makes one of three decisions fo
 
 - **Kept**: The memory is high-value or recently updated and remains unchanged.
 - **Merged**: Near-duplicate memories are combined into a single, consolidated memory.
-- **Discarded**: Stale or low-scoring memories are removed to save space and reduce noise.
+- **Discarded**: Stale or low-scoring memories leave the active view and are retained as archived history.
 
 ## Preview vs. Compact
 
@@ -43,7 +43,7 @@ You can control how aggressive compaction is by passing a `CompactionPolicy`.
 from mneno.compaction import CompactionPolicy
 
 policy = CompactionPolicy(
-    max_memories=500,           # Hard limit on total memories
+    max_memories=500,           # Target limit on eligible active memories
     min_score_to_keep=0.3,      # Discard anything scoring below this
     merge_duplicates=True,      # Consolidate similar memories
     stale_after_days=90,        # Discard low-importance memories older than this
@@ -57,8 +57,8 @@ client.compact(policy=policy)
 
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
-| `max_memories` | `None` | If set, forces the store down to this many memories, prioritizing high scores. |
-| `min_score_to_keep` | `0.20` | Memories with a total score below this are candidates for deletion. |
+| `max_memories` | `None` | If set, targets this many eligible active memories; protected evidence can exceed it. |
+| `min_score_to_keep` | `0.20` | Memories with a total score below this are candidates for archival. |
 | `merge_duplicates` | `True` | Whether to merge memories with high token overlap. |
 | `stale_after_days` | `180` | Age at which low-importance memories are considered stale. |
 | `preserve_memory_types` | `[operational, preference]` | Memory types that are never automatically discarded. |
@@ -67,3 +67,24 @@ client.compact(policy=policy)
 ## Explainable Merges
 
 When memories are merged, Mneno creates a new memory that consolidates the metadata and tags of the sources. The `CompactionDiff` includes a list of `created` memories and links them to the `merged` sources via `related_memory_ids`.
+
+## Unresolved conflict evidence
+
+Compaction preserves memories marked conflicted or carrying conflict links, including their original IDs and provenance.
+These records, including targets of one-sided conflict links, bypass merge/discard and reduction caps.
+
+## Durable history and commit boundary (0.5.0)
+
+`compact()` stages results, session changes, and source archival in one storage transaction. A precommit failure preserves
+all original records. Custom stores without atomic capability fail before mutation. Preview remains nonmutating.
+
+Merged and discarded sources retain their IDs, content, provenance, metadata, audit history, session membership, and
+creation timestamps. A `compaction_archived` audit event records the original status/layer/update time, policy, decision,
+and resulting ID where applicable. A result retains `metadata.source_memory_ids` and a `compaction_created` audit event.
+No correction or supersession is inferred from compaction. Sources sharing a primary session produce a result in that
+session with a new sequence index; cross-session results have no primary session and preserve source-session history.
+
+`list()`, `get()`, timelines, backups, and exports include archived history. Default search/context excludes it.
+`CompactionStats.before_count`/`after_count` describe the eligible active view, not physical storage count. Archived and
+superseded records are not compacted again. Compaction reduces active context, not disk usage; retention cleanup is
+separate future work. Existing code that assumes source deletion must use lifecycle visibility or diff counts instead.

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mneno._time import as_utc
 from mneno.hierarchy.layers import MemoryLayer, infer_layer
 from mneno.hierarchy.policies import LayerPolicy
 from mneno.hierarchy.transitions import DEMOTION_TARGETS, PROMOTION_TARGETS, is_promotional
@@ -211,15 +212,12 @@ class HierarchyManager:
         return None
 
     def _is_stale(self, memory: Memory, ttl_days: int) -> bool:
-        updated_at = memory.updated_at
-        if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=UTC)
+        updated_at = as_utc(memory.updated_at)
         return (datetime.now(UTC) - updated_at).days >= ttl_days
 
 
 def _recency_component(updated_at: datetime) -> float:
-    if updated_at.tzinfo is None:
-        updated_at = updated_at.replace(tzinfo=UTC)
+    updated_at = as_utc(updated_at)
     age_days = max((datetime.now(UTC) - updated_at).total_seconds(), 0.0) / (24 * 60 * 60)
     return max(1.0 - (age_days / 90.0), 0.0)
 

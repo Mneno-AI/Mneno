@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mneno._time import as_utc
 from mneno.hierarchy.layers import MemoryLayer
 from mneno.models import Memory, MemoryStatus, utc_now
 
@@ -52,7 +53,7 @@ class TimelineBuilder:
         ordered = sorted(
             filtered,
             key=lambda memory: (
-                memory.created_at,
+                as_utc(memory.created_at),
                 memory.session_id or "",
                 memory.sequence_index if memory.sequence_index is not None else 10**9,
                 memory.id,

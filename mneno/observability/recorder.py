@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from mneno._time import as_utc
 from mneno.models import utc_now
 from mneno.observability.events import TraceEvent
 from mneno.observability.trace import CompletedTraceStatus, OperationTrace
@@ -27,7 +28,8 @@ _SENSITIVE_KEYS = {
 class TraceRecorder:
     """Record local in-memory operation traces."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, include_memory_content: bool = False) -> None:
+        self.include_memory_content = include_memory_content
         self._traces: dict[str, OperationTrace] = {}
 
     def start_trace(self, operation: str, metadata: dict[str, Any] | None = None) -> OperationTrace:
@@ -62,7 +64,11 @@ class TraceRecorder:
             message=message,
             memory_id=memory_id,
             session_id=session_id,
-            data=_sanitize_data(data or {}),
+            data=_sanitize_data(
+                {**(data or {}), "content_preview": _REDACTED}
+                if data and "content_preview" in data and not self.include_memory_content
+                else data or {}
+            ),
         )
         self._traces[trace.id] = trace.model_copy(update={"events": [*trace.events, event]})
         return event
@@ -78,7 +84,7 @@ class TraceRecorder:
             raise KeyError(f"Unknown trace_id: {trace_id}")
         trace = self._traces[trace_id]
         completed_at = utc_now()
-        duration_ms = (completed_at - trace.started_at).total_seconds() * 1000.0
+        duration_ms = (as_utc(completed_at) - as_utc(trace.started_at)).total_seconds() * 1000.0
         completed = trace.model_copy(
             update={
                 "completed_at": completed_at,

@@ -6,6 +6,7 @@ import re
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mneno._time import as_utc
 from mneno.models import Memory, MemoryStatus
 from mneno.sessions.models import Session
 
@@ -55,7 +56,7 @@ class ContinuityManager:
                 continue
             scored.append((session, overlap, f"Matched related session by token overlap {overlap:.2f}"))
 
-        scored.sort(key=lambda item: (item[1], item[0].updated_at, item[0].id), reverse=True)
+        scored.sort(key=lambda item: (item[1], as_utc(item[0].updated_at), item[0].id), reverse=True)
         related_sessions = [session for session, _, _ in scored[:limit]]
         related_session_ids = {session.id for session in related_sessions}
         relevant_memories = [
@@ -67,7 +68,7 @@ class ContinuityManager:
             key=lambda memory: (
                 memory.session_id or "",
                 memory.sequence_index if memory.sequence_index is not None else 10**9,
-                memory.created_at,
+                as_utc(memory.created_at),
                 memory.id,
             )
         )

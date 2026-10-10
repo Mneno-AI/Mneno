@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from mneno import MemoryClient
 from mneno.compaction import CompactionPolicy
-from mneno.models import CompactionDecisionType, Memory, MemoryType, utc_now
+from mneno.models import CompactionDecisionType, Memory, MemoryStatus, MemoryType, utc_now
 
 
 def test_preview_compaction_does_not_mutate_storage() -> None:
@@ -25,10 +25,12 @@ def test_compact_mutates_storage_for_merged_memories() -> None:
     stored = client.list()
 
     assert len(diff.created) == 1
-    assert len(stored) == 1
-    assert stored[0].id == diff.created[0].id
-    assert first.id not in {memory.id for memory in stored}
-    assert second.id not in {memory.id for memory in stored}
+    active = [memory for memory in stored if memory.status is MemoryStatus.ACTIVE]
+    assert len(active) == 1
+    assert active[0].id == diff.created[0].id
+    assert client.get(first.id).status is MemoryStatus.ARCHIVED
+    assert client.get(second.id).status is MemoryStatus.ARCHIVED
+    assert {memory.id for memory in stored} == {first.id, second.id, active[0].id}
 
 
 def test_high_importance_memories_are_kept() -> None:

@@ -208,7 +208,8 @@ def test_compaction_works_with_json_storage(tmp_path: Path) -> None:
     diff = client.compact()
 
     assert diff.created
-    assert len(client.list()) == 1
+    assert len([memory for memory in client.list() if memory.status.value == "active"]) == 1
+    assert len(client.list()) == 3
 
 
 def test_compaction_works_with_sqlite_storage(tmp_path: Path) -> None:
@@ -219,7 +220,8 @@ def test_compaction_works_with_sqlite_storage(tmp_path: Path) -> None:
     diff = client.compact()
 
     assert diff.created
-    assert len(client.list()) == 1
+    assert len([memory for memory in client.list() if memory.status.value == "active"]) == 1
+    assert len(client.list()) == 3
 
 
 def test_default_in_memory_client_behavior_still_works() -> None:

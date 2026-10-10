@@ -61,7 +61,7 @@ def search_command(
     ] = True,
 ) -> None:
     """Search local memories using Mneno Core scoring."""
-    reject_blank(query, message="Query must not be empty.")
+    reject_blank(query, message="Query must not be empty.", json_output=json_output)
 
     workspace_path = find_workspace()
     if workspace_path is None:

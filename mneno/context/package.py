@@ -70,3 +70,4 @@ class ContextPackage(BaseModel):
     stats: ContextStats
     trace_id: str | None = None
     _retrieval_diagnostics: list[Any] = PrivateAttr(default_factory=list)
+    _retrieval_stages: dict[str, list[str]] = PrivateAttr(default_factory=dict)

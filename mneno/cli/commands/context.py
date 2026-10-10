@@ -85,7 +85,7 @@ def context_command(
     ] = False,
 ) -> None:
     """Build context using Mneno Core and local JSON storage."""
-    reject_blank(query, message="Query must not be empty.")
+    reject_blank(query, message="Query must not be empty.", json_output=json_output)
 
     workspace_path = find_workspace()
     if workspace_path is None:

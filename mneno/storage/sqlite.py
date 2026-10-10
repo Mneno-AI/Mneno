@@ -5,10 +5,14 @@ from __future__ import annotations
 import builtins
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from pathlib import Path
 
+from mneno._time import as_utc
 from mneno.models import Memory
 from mneno.sessions.models import Session
+from mneno.storage.memory import InMemoryMemoryStore
 
 SCHEMA_VERSION = 2
 
@@ -20,6 +24,30 @@ class SQLiteStorage:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
+
+    @contextmanager
+    def transaction(self) -> Iterator[InMemoryMemoryStore]:
+        """Commit memories and sessions together under a SQLite write transaction."""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            staged = InMemoryMemoryStore()
+            for row in connection.execute("SELECT payload FROM memories"):
+                staged.add(_deserialize_memory(row["payload"]))
+            for row in connection.execute("SELECT payload FROM sessions"):
+                staged.add_session(_deserialize_session(row["payload"]))
+            yield staged
+            self._replace_snapshot(connection, staged)
+
+    def _replace_snapshot(self, connection: sqlite3.Connection, staged: InMemoryMemoryStore) -> None:
+        memories, sessions = staged._validated_snapshot()
+        connection.execute("DELETE FROM memories")
+        connection.execute("DELETE FROM sessions")
+        for table, records in (("memories", memories.values()), ("sessions", sessions.values())):
+            for record in records:
+                connection.execute(
+                    f"INSERT INTO {table} (id, payload, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                    (record.id, record.model_dump_json(), record.created_at.isoformat(), record.updated_at.isoformat()),
+                )
 
     def add(self, memory: Memory) -> Memory:
         try:
@@ -50,7 +78,10 @@ class SQLiteStorage:
     def list(self) -> list[Memory]:
         with self._connect() as connection:
             rows = connection.execute("SELECT payload FROM memories ORDER BY created_at, id").fetchall()
-        return [_deserialize_memory(row["payload"]) for row in rows]
+        return sorted(
+            (_deserialize_memory(row["payload"]) for row in rows),
+            key=lambda memory: (as_utc(memory.created_at), memory.id),
+        )
 
     def update(self, memory: Memory) -> Memory:
         with self._connect() as connection:
@@ -74,6 +105,20 @@ class SQLiteStorage:
     def delete(self, memory_id: str) -> bool:
         with self._connect() as connection:
             cursor = connection.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+            if cursor.rowcount > 0:
+                for row in connection.execute("SELECT payload FROM sessions").fetchall():
+                    session = _deserialize_session(row["payload"])
+                    if memory_id in session.memory_ids:
+                        updated = session.model_copy(
+                            update={
+                                "memory_ids": [
+                                    identifier for identifier in session.memory_ids if identifier != memory_id
+                                ]
+                            }
+                        )
+                        connection.execute(
+                            "UPDATE sessions SET payload = ? WHERE id = ?", (_serialize_session(updated), session.id)
+                        )
         return cursor.rowcount > 0
 
     def clear(self) -> None:
@@ -110,7 +155,10 @@ class SQLiteStorage:
     def list_sessions(self) -> builtins.list[Session]:
         with self._connect() as connection:
             rows = connection.execute("SELECT payload FROM sessions ORDER BY created_at, id").fetchall()
-        return [_deserialize_session(row["payload"]) for row in rows]
+        return sorted(
+            (_deserialize_session(row["payload"]) for row in rows),
+            key=lambda session: (as_utc(session.created_at), session.id),
+        )
 
     def update_session(self, session: Session) -> Session:
         with self._connect() as connection:
@@ -138,6 +186,9 @@ class SQLiteStorage:
 
     def _initialize(self) -> None:
         with self._connect() as connection:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                raise ValueError(f"Unsupported SQLite schema version: {version}")
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.execute(
                 """

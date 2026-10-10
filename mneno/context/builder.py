@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from mneno._time import as_utc
 from mneno.context.budget import estimate_tokens
 from mneno.context.package import ContextItem, ContextPackage, ContextStats, ExcludedContextItem
 from mneno.context.policies import ContextPolicy
@@ -57,6 +58,8 @@ class ContextBuilder:
         related_session_ids: set[str] | None = None,
     ) -> ContextPackage:
         """Build an explainable context package from candidate memories."""
+        if limit is not None and limit <= 0:
+            raise ValueError("limit must be greater than 0")
         all_candidates = [
             _Candidate(
                 memory=memory,
@@ -72,6 +75,7 @@ class ContextBuilder:
             for memory in memories
         ]
         sorted_candidates = self._sort_candidates(all_candidates, strategy=policy.strategy)
+        initial_ranking_ids = [candidate.memory.id for candidate in sorted_candidates]
         sorted_candidates = self._rerank_candidates(query, sorted_candidates)
         candidates = sorted_candidates[:limit] if limit is not None else sorted_candidates
         rank_by_memory_id = {candidate.memory.id: rank for rank, candidate in enumerate(sorted_candidates, start=1)}
@@ -173,6 +177,13 @@ class ContextBuilder:
             stats=stats,
         )
         package._retrieval_diagnostics = decisions
+        package._retrieval_stages = {
+            "initial_ranking_ids": initial_ranking_ids,
+            "reranker_input_ids": initial_ranking_ids if self.reranker_provider is not None else [],
+            "reranker_output_ids": [candidate.memory.id for candidate in sorted_candidates]
+            if self.reranker_provider is not None
+            else [],
+        }
         return package
 
     def _sort_candidates(self, candidates: list[_Candidate], *, strategy: str) -> list[_Candidate]:
@@ -180,7 +191,7 @@ class ContextBuilder:
             return sorted(
                 candidates,
                 key=lambda item: (
-                    item.memory.updated_at,
+                    as_utc(item.memory.updated_at),
                     LAYER_PRIORITY[item.memory.layer],
                     item.score.total,
                     item.memory.id,
@@ -203,7 +214,7 @@ class ContextBuilder:
             key=lambda item: (
                 item.score.total,
                 LAYER_PRIORITY[item.memory.layer],
-                item.memory.updated_at,
+                as_utc(item.memory.updated_at),
                 item.memory.id,
             ),
             reverse=True,

@@ -24,7 +24,7 @@ UPDATE_CUE_PATTERNS = (
     re.compile(r"\breplaced\s+by\b"),
     re.compile(r"\binstead\b(?!\s+of\b)"),
 )
-UPDATE_METADATA_KEYS = ("supersedes", "correction", "verified")
+UPDATE_METADATA_KEYS = ("supersedes", "correction")
 OPERATIONAL_KEYS = ("task", "goal", "constraint", "requirement", "priority")
 
 
@@ -69,10 +69,6 @@ class ConflictDetector:
         existing_memory: Memory,
         policy: ConflictPolicy,
     ) -> ConflictReport | None:
-        duplicate = self._duplicate_report(new_memory, existing_memory, policy)
-        if duplicate is not None:
-            return duplicate
-
         preference = self._preference_report(new_memory, existing_memory, policy)
         if preference is not None:
             return preference
@@ -81,7 +77,7 @@ class ConflictDetector:
         if operational is not None:
             return operational
 
-        return None
+        return self._duplicate_report(new_memory, existing_memory, policy)
 
     def _duplicate_report(
         self,
@@ -231,6 +227,22 @@ class ConflictDetector:
         )
         if not operational_type and not (new_claim.update_cue or existing_claim.update_cue):
             return None
+
+        if not new_claim.update_cue:
+            return ConflictReport(
+                conflict_type=ConflictType.CONTRADICTION,
+                severity=ConflictSeverity.HIGH,
+                new_memory_id=new_memory.id,
+                existing_memory_id=existing_memory.id,
+                reason=(
+                    "Operational contradiction without explicit update signal; preserve both memories as conflicted."
+                ),
+                evidence=[
+                    f"new_{new_claim.key}={new_claim.value}",
+                    f"existing_{existing_claim.key}={existing_claim.value}",
+                ],
+                suggested_action=ConflictAction.MARK_CONFLICTED,
+            )
 
         return ConflictReport(
             conflict_type=ConflictType.OPERATIONAL_CHANGE,

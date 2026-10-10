@@ -213,7 +213,8 @@ def test_client_evaluate_compaction_can_apply_mutation() -> None:
     result = client.evaluate_compaction(apply=True)
 
     assert result.after_count == 1
-    assert len(client.list()) == 1
+    assert len([memory for memory in client.list() if memory.status.value == "active"]) == 1
+    assert len(client.list()) == 3
 
 
 def test_trace_export_and_benchmark_export_work() -> None:

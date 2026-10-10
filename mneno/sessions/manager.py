@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from mneno._time import as_utc
 from mneno.models import Memory, utc_now
 from mneno.sessions.models import Session
 from mneno.sessions.timeline import Timeline, TimelineBuilder
@@ -55,7 +56,7 @@ class SessionManager:
             attached,
             key=lambda memory: (
                 memory.sequence_index if memory.sequence_index is not None else 10**9,
-                memory.created_at,
+                as_utc(memory.created_at),
                 memory.id,
             ),
         )
