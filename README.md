@@ -18,7 +18,7 @@ developers can see what memory was kept, merged, discarded, and why.
 pip install mneno
 ```
 
-The current release is `0.4.0`.
+The current release is `0.5.0`.
 
 For local development:
 
