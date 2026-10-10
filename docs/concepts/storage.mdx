@@ -33,7 +33,7 @@ client = MemoryClient(storage=JSONFileStorage("data/memories.json"))
 ```
 
 - **Pros**: Human-readable, easy to debug, easy to version control.
-- **Cons**: Slower for large datasets (entire file is read/written on every update).
+- **Cons**: Slower for large datasets (entire file is rewritten on every update; reads use an instance-local cached snapshot).
 
 ### SQLite Storage
 
@@ -82,3 +82,8 @@ class MyCustomStorage(MemoryStore):
 
     # ... and so on
 ```
+
+Duplicate memory IDs are rejected by all built-in stores; use an explicit update to replace a record.
+Deleting a memory also removes its ID from session membership. JSON write failures restore the cached committed state.
+JSON storage requires a single writer; separate instances do not coordinate updates.
+SQLite refuses databases with a schema version newer than this implementation.

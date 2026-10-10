@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mneno.conflicts.detector import _has_explicit_update_signal
 from mneno.conflicts.policies import ConflictPolicy
 from mneno.conflicts.reports import ConflictReport, ConflictType
 from mneno.hierarchy.layers import MemoryLayer
@@ -42,6 +43,13 @@ class ConflictResolver:
             existing = updated_by_id.get(report.existing_memory_id) or by_id.get(report.existing_memory_id)
             if existing is None:
                 continue
+
+            if report.conflict_type in {
+                ConflictType.SUPERSESSION,
+                ConflictType.OPERATIONAL_CHANGE,
+                ConflictType.PREFERENCE_CHANGE,
+            } and not _has_explicit_update_signal(current_new.content.lower(), metadata=current_new.metadata):
+                report = report.model_copy(update={"conflict_type": ConflictType.CONTRADICTION})
 
             if report.conflict_type in {ConflictType.SUPERSESSION, ConflictType.OPERATIONAL_CHANGE}:
                 should_supersede = (

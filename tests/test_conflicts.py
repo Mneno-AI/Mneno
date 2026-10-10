@@ -78,7 +78,7 @@ def test_detector_treats_instead_of_as_contradiction_without_update_signal() -> 
 
 def test_detector_detects_operational_change() -> None:
     existing = Memory(content="Current task is build the React UI.", memory_type=MemoryType.OPERATIONAL)
-    new = Memory(content="Current task is build the CLI.", memory_type=MemoryType.OPERATIONAL)
+    new = Memory(content="Task changed to build the CLI.", memory_type=MemoryType.OPERATIONAL)
 
     reports = ConflictDetector().detect(new, [existing])
 

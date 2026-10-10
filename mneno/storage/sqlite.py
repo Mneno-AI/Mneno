@@ -74,6 +74,20 @@ class SQLiteStorage:
     def delete(self, memory_id: str) -> bool:
         with self._connect() as connection:
             cursor = connection.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
+            if cursor.rowcount > 0:
+                for row in connection.execute("SELECT payload FROM sessions").fetchall():
+                    session = _deserialize_session(row["payload"])
+                    if memory_id in session.memory_ids:
+                        updated = session.model_copy(
+                            update={
+                                "memory_ids": [
+                                    identifier for identifier in session.memory_ids if identifier != memory_id
+                                ]
+                            }
+                        )
+                        connection.execute(
+                            "UPDATE sessions SET payload = ? WHERE id = ?", (_serialize_session(updated), session.id)
+                        )
         return cursor.rowcount > 0
 
     def clear(self) -> None:
@@ -138,6 +152,9 @@ class SQLiteStorage:
 
     def _initialize(self) -> None:
         with self._connect() as connection:
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                raise ValueError(f"Unsupported SQLite schema version: {version}")
             connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.execute(
                 """

@@ -57,6 +57,17 @@ def import_memories_from_payload(
         raise ValueError("import mode must be 'append', 'replace', 'skip_existing', or 'overwrite'")
     validate_export_payload(payload)
     if mode == "replace":
+        # Validate the complete replacement before any destructive mutation.
+        for key, model in (("memories", Memory), ("sessions", Session)):
+            records = payload.get(key, [])
+            if not isinstance(records, list):
+                raise ValueError(f"Invalid export payload: {key} must be a list")
+            seen: set[str] = set()
+            for record in records:
+                identifier = model.model_validate(record).id
+                if identifier in seen:
+                    raise ValueError(f"Duplicate {key} id in replacement: {identifier}")
+                seen.add(identifier)
         storage.clear()
 
     result = ImportResult()

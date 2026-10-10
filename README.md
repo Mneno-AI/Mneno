@@ -624,16 +624,12 @@ from mneno import MemoryClient
 
 client = MemoryClient()
 
-result = client.extract_memories(
-    "The user is building Mneno. They prefer Python 3.11."
-)
+result = client.extract_memories("The user is building Mneno. They prefer Python 3.11.")
 
 for memory in result.extracted:
     print(memory.content, memory.memory_type, memory.reason)
 
-client.add_from_text(
-    "The user is building Mneno. They prefer Python 3.11."
-)
+client.add_from_text("The user is building Mneno. They prefer Python 3.11.")
 ```
 
 ## LLM-Assisted Extraction

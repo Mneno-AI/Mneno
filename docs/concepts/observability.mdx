@@ -84,3 +84,16 @@ client.clear_traces()
 ```
 
 Clearing traces does not alter stored memories.
+
+## Retrieval stage diagnostics
+
+Search and context traces expose candidate IDs before and after lifecycle filtering, initial ranking IDs,
+reranker input/output IDs, effective policies and scoring reference time, and final selected IDs.
+Disabled reranking is explicit: its input and output arrays are empty. Failed search/context traces finish with
+`status="error"` and an `operation_failed` event containing only the exception type.
+
+Memory `content_preview` values are redacted by default. To record previews, supply
+`TraceRecorder(include_memory_content=True)` from `mneno.observability`. Queries and scoring reasons can still contain
+sensitive text. Clear traces between large operations; detailed trace output has no retention or event bound.
+
+The engineering contract is documented in `docs/engineering/phase-a/RETRIEVAL_TRACING.md`.

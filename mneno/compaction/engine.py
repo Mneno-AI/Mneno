@@ -18,6 +18,7 @@ from mneno.models import (
     CompactionStats,
     Memory,
     MemoryScore,
+    MemoryStatus,
     MemoryType,
     utc_now,
 )
@@ -118,7 +119,14 @@ class CompactionEngine:
         )
 
     def _find_merge_groups(self, memories: list[Memory]) -> list[list[Memory]]:
-        remaining = sorted(memories, key=lambda memory: (memory.content.lower(), memory.id))
+        remaining = sorted(
+            (
+                memory
+                for memory in memories
+                if memory.status is not MemoryStatus.CONFLICTED and not memory.conflicts_with
+            ),
+            key=lambda memory: (memory.content.lower(), memory.id),
+        )
         groups: list[list[Memory]] = []
         used_ids: set[str] = set()
 
@@ -191,6 +199,8 @@ class CompactionEngine:
         return content if isinstance(content, str) and content.strip() else None
 
     def _keep_reason(self, memory: Memory, score: MemoryScore, policy: CompactionPolicy) -> str | None:
+        if memory.status is MemoryStatus.CONFLICTED or memory.conflicts_with:
+            return "Kept because unresolved conflict evidence must be preserved"
         if memory.memory_type in policy.preserve_memory_types:
             return f"Kept because memory type '{memory.memory_type.value}' is preserved by policy"
         preserved_tags = set(policy.preserve_tags)
@@ -266,7 +276,7 @@ class CompactionEngine:
         policy: CompactionPolicy,
     ) -> bool:
         reason = decision.reason
-        if "importance" in reason:
+        if "unresolved conflict evidence" in reason or "importance" in reason:
             return True
         if any(memory_type.value in reason for memory_type in protected_types):
             return True
@@ -346,7 +356,7 @@ def _merge_metadata(group: list[Memory]) -> dict[str, Any]:
 
 
 def _merge_metadata_value(existing: Any, new_value: Any) -> list[Any]:
-    values = existing if isinstance(existing, list) else [existing]
+    values = list(existing) if isinstance(existing, list) else [existing]
     if new_value not in values:
         values.append(new_value)
     return values

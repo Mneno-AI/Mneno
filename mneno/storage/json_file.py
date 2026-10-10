@@ -45,6 +45,12 @@ class JSONFileStorage:
     def delete(self, memory_id: str) -> bool:
         deleted = self._memories.pop(memory_id, None) is not None
         if deleted:
+            self._sessions = {
+                identifier: session.model_copy(
+                    update={"memory_ids": [stored_id for stored_id in session.memory_ids if stored_id != memory_id]}
+                )
+                for identifier, session in self._sessions.items()
+            }
             self._write()
         return deleted
 
@@ -112,11 +118,16 @@ class JSONFileStorage:
         return loaded, sessions
 
     def _write(self) -> None:
-        payload: dict[str, Any] = {
-            "version": STORAGE_FORMAT_VERSION,
-            "memories": [memory.model_dump(mode="json") for memory in self._memories.values()],
-            "sessions": [session.model_dump(mode="json") for session in self._sessions.values()],
-        }
-        temp_path = self.path.with_name(f"{self.path.name}.tmp")
-        temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        temp_path.replace(self.path)
+        try:
+            payload: dict[str, Any] = {
+                "version": STORAGE_FORMAT_VERSION,
+                "memories": [memory.model_dump(mode="json") for memory in self._memories.values()],
+                "sessions": [session.model_dump(mode="json") for session in self._sessions.values()],
+            }
+            temp_path = self.path.with_name(f"{self.path.name}.tmp")
+            temp_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            temp_path.replace(self.path)
+        except Exception:
+            # Failed mutations must not leak into a later successful write.
+            self._memories, self._sessions = self._load()
+            raise

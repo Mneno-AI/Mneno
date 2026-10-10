@@ -88,3 +88,8 @@ demoted = client.demote_memory(semantic.id, "episodic")
 ```
 
 Invalid layer transitions raise a clear error. Use `client.list_by_layer("semantic")` to inspect one layer.
+
+Operational contradictions also require explicit update intent before supersession.
+`Current task is build the UI.` followed by `Current task is build the CLI.` marks both conflicted.
+`Task changed to build the CLI.` supplies update intent. Verification metadata alone is not correction intent.
+Recognized contradictions take precedence over near-duplicate classification.

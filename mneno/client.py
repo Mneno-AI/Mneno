@@ -221,9 +221,9 @@ class MemoryClient:
             resolution = self.conflict_resolver.resolve(memory, existing, reports, policy=self.conflict_policy)
             memory = resolution.new_memory
             actions = resolution.actions
-            for action in actions:
-                self._trace_event(trace, event_type="resolution_action_applied", message=action)
-                self._trace_event(trace, event_type="conflict_resolution_action", message=action)
+
+        stored = self.store.add(memory)
+        if self.auto_detect_conflicts:
             for updated in resolution.updated_existing:
                 self.store.update(updated)
                 if updated.audit:
@@ -235,7 +235,10 @@ class MemoryClient:
                         data={"audit_event_type": updated.audit[-1].event_type},
                     )
 
-        stored = self.store.add(memory)
+        for action in actions:
+            self._trace_event(trace, event_type="resolution_action_applied", message=action)
+            self._trace_event(trace, event_type="conflict_resolution_action", message=action)
+
         if reports and stored.audit:
             self._trace_event(
                 trace,
@@ -595,244 +598,295 @@ class MemoryClient:
     ) -> builtins.list[MemorySearchResult]:
         """Search local memories and return ranked, explainable results."""
         trace = self._start_trace("search", metadata={"query": query, "limit": limit})
-        self._trace_event(
-            trace,
-            event_type="query_received",
-            message="Search query received",
-            data={"query": query, "limit": limit},
-        )
-        request = SearchMemoryRequest(query=query, limit=limit)
-        should_use_semantic = self._should_use_semantic(use_semantic)
-        should_use_reranker = self._should_use_reranker(use_reranker)
-        all_memory_count = len(self.store.list())
-        self._trace_event(
-            trace,
-            event_type="memories_loaded",
-            message=f"Loaded {all_memory_count} memories",
-            data={"memory_count": all_memory_count},
-        )
-        searchable_memories = self._searchable_memories(
-            include_inactive=include_inactive,
-            include_archived=include_archived,
-        )
-        inactive_filter_skipped = include_inactive
-        inactive_filter_relaxed = include_archived and not include_inactive
-        self._trace_event(
-            trace,
-            event_type="inactive_filtering_applied",
-            message="Inactive memory filtering skipped"
-            if inactive_filter_skipped
-            else "Archived memories included; superseded memories excluded"
-            if inactive_filter_relaxed
-            else "Archived and superseded memories excluded",
-            data={
-                "applied": not inactive_filter_skipped,
-                "include_archived": include_archived,
-                "include_inactive": include_inactive,
-                "excluded_count": all_memory_count - len(searchable_memories),
-            },
-        )
-        self._trace_event(
-            trace,
-            event_type="candidate_filtering",
-            message=f"Filtered {len(searchable_memories)} searchable memories from {all_memory_count} stored memories",
-            data={"candidate_count": len(searchable_memories), "stored_count": all_memory_count},
-        )
-        self._trace_event(
-            trace,
-            event_type="semantic_stage",
-            message="Semantic stage used" if should_use_semantic else "Semantic stage skipped",
-            data={"used": should_use_semantic},
-        )
-        scored: builtins.list[tuple[Memory, MemoryScore]] = []
-        active_session_id = current_session_id or self.active_session_id
-        related_session_ids = self._related_session_ids(request.query, current_session_id=active_session_id)
-        session_matches = (
-            sum(memory.session_id == active_session_id for memory in searchable_memories)
-            if active_session_id is not None
-            else 0
-        )
-        self._trace_event(
-            trace,
-            event_type="session_boost_stage",
-            message="Session boost used" if session_matches else "Session boost skipped",
-            session_id=active_session_id,
-            data={
-                "used": session_matches > 0 or bool(related_session_ids),
-                "boosted_candidate_count": session_matches,
-                "related_session_count": len(related_session_ids),
-            },
-        )
-        for memory in searchable_memories:
-            score = self.scorer.score(memory, query=request.query, use_semantic=should_use_semantic)
-            score = session_adjusted_score(
-                score,
-                memory=memory,
-                current_session_id=active_session_id,
-                related_session_ids=related_session_ids,
-                query=request.query,
+        try:
+            self._trace_event(
+                trace,
+                event_type="query_received",
+                message="Search query received",
+                data={"query": query, "limit": limit},
             )
-            if active_session_id is not None and memory.session_id == active_session_id:
-                self._trace_event(
-                    trace,
-                    event_type="session_boost_applied",
-                    message="Applied active-session score boost",
-                    memory_id=memory.id,
-                    session_id=active_session_id,
-                    data={
-                        "boost": score_trace_data(
-                            memory,
-                            score,
-                            query=request.query,
-                            current_session_id=active_session_id,
-                            related_session_ids=related_session_ids,
-                        )["current_session_boost"]
-                    },
+            request = SearchMemoryRequest(query=query, limit=limit)
+            should_use_semantic = self._should_use_semantic(use_semantic)
+            should_use_reranker = self._should_use_reranker(use_reranker)
+            all_memories = self.store.list()
+            all_memory_count = len(all_memories)
+            self._trace_event(
+                trace,
+                event_type="memories_loaded",
+                message=f"Loaded {all_memory_count} memories",
+                data={"memory_count": all_memory_count},
+            )
+            searchable_memories = self._searchable_memories(
+                include_inactive=include_inactive,
+                include_archived=include_archived,
+            )
+            searchable_ids = {memory.id for memory in searchable_memories}
+            inactive_filter_skipped = include_inactive
+            inactive_filter_relaxed = include_archived and not include_inactive
+            self._trace_event(
+                trace,
+                event_type="inactive_filtering_applied",
+                message="Inactive memory filtering skipped"
+                if inactive_filter_skipped
+                else "Archived memories included; superseded memories excluded"
+                if inactive_filter_relaxed
+                else "Archived and superseded memories excluded",
+                data={
+                    "applied": not inactive_filter_skipped,
+                    "include_archived": include_archived,
+                    "include_inactive": include_inactive,
+                    "excluded_count": all_memory_count - len(searchable_memories),
+                },
+            )
+            self._trace_event(
+                trace,
+                event_type="candidate_filtering",
+                message=(
+                    f"Filtered {len(searchable_memories)} searchable memories from {all_memory_count} stored memories"
+                ),
+                data={
+                    "candidate_count": len(searchable_memories),
+                    "stored_count": all_memory_count,
+                    "initial_candidate_ids": [memory.id for memory in all_memories],
+                    "post_filter_candidate_ids": [memory.id for memory in searchable_memories],
+                    "excluded_memory_ids": [memory.id for memory in all_memories if memory.id not in searchable_ids],
+                },
+            )
+            self._trace_event(
+                trace,
+                event_type="semantic_stage",
+                message="Semantic stage used" if should_use_semantic else "Semantic stage skipped",
+                data={"used": should_use_semantic},
+            )
+            scored: builtins.list[tuple[Memory, MemoryScore]] = []
+            active_session_id = current_session_id or self.active_session_id
+            related_session_ids = self._related_session_ids(request.query, current_session_id=active_session_id)
+            self._trace_event(
+                trace,
+                event_type="effective_retrieval_config",
+                message="Effective search configuration",
+                data={
+                    "limit": request.limit,
+                    "include_inactive": include_inactive,
+                    "include_archived": include_archived,
+                    "use_semantic": should_use_semantic,
+                    "use_reranker": should_use_reranker,
+                    "current_session_id": active_session_id,
+                    "related_session_ids": sorted(related_session_ids),
+                    "scoring_policy": self.scorer.policy.model_dump(mode="json"),
+                    "reference_time": self.scorer.reference_time.isoformat() if self.scorer.reference_time else None,
+                    "scorer": type(self.scorer).__name__,
+                },
+            )
+            session_matches = (
+                sum(memory.session_id == active_session_id for memory in searchable_memories)
+                if active_session_id is not None
+                else 0
+            )
+            self._trace_event(
+                trace,
+                event_type="session_boost_stage",
+                message="Session boost used" if session_matches else "Session boost skipped",
+                session_id=active_session_id,
+                data={
+                    "used": session_matches > 0 or bool(related_session_ids),
+                    "boosted_candidate_count": session_matches,
+                    "related_session_count": len(related_session_ids),
+                },
+            )
+            for memory in searchable_memories:
+                score = self.scorer.score(memory, query=request.query, use_semantic=should_use_semantic)
+                score = session_adjusted_score(
+                    score,
+                    memory=memory,
+                    current_session_id=active_session_id,
+                    related_session_ids=related_session_ids,
+                    query=request.query,
                 )
-            elif memory.session_id in related_session_ids:
+                if active_session_id is not None and memory.session_id == active_session_id:
+                    self._trace_event(
+                        trace,
+                        event_type="session_boost_applied",
+                        message="Applied active-session score boost",
+                        memory_id=memory.id,
+                        session_id=active_session_id,
+                        data={
+                            "boost": score_trace_data(
+                                memory,
+                                score,
+                                query=request.query,
+                                current_session_id=active_session_id,
+                                related_session_ids=related_session_ids,
+                            )["current_session_boost"]
+                        },
+                    )
+                elif memory.session_id in related_session_ids:
+                    self._trace_event(
+                        trace,
+                        event_type="continuity_boost_applied",
+                        message="Applied related-session continuity score boost",
+                        memory_id=memory.id,
+                        session_id=memory.session_id,
+                        data={
+                            "boost": score_trace_data(
+                                memory,
+                                score,
+                                query=request.query,
+                                current_session_id=active_session_id,
+                                related_session_ids=related_session_ids,
+                            )["continuity_boost"]
+                        },
+                    )
+                if trace is not None:
+                    self._trace_event(
+                        trace,
+                        event_type="score_calculated",
+                        message=f"Score {score.total:.3f} calculated for memory {memory.id}",
+                        memory_id=memory.id,
+                        session_id=memory.session_id,
+                        data={
+                            **_memory_trace_identity(memory),
+                            **score_trace_data(
+                                memory,
+                                score,
+                                query=request.query,
+                                current_session_id=active_session_id,
+                                related_session_ids=related_session_ids,
+                            ),
+                            "total": score.total,
+                            "relevance": score.relevance,
+                            "importance": score.importance,
+                            "recency": score.recency,
+                            "frequency": score.frequency,
+                            "freshness": score.freshness,
+                            "semantic_relevance": score.semantic_relevance,
+                            "reasons": score.reasons,
+                        },
+                    )
+                scored.append((memory, score))
+
+            zero_relevance = [] if should_use_reranker else [item for item in scored if item[1].relevance <= 0]
+            relevance_filtered = scored if should_use_reranker else [item for item in scored if item[1].relevance > 0]
+            self._trace_event(
+                trace,
+                event_type="query_relevance_filtering",
+                message=(
+                    "Query relevance filtering skipped for reranking"
+                    if should_use_reranker
+                    else f"Excluded {len(scored) - len(relevance_filtered)} zero-relevance memories"
+                ),
+                data={
+                    "applied": not should_use_reranker,
+                    "excluded_count": len(scored) - len(relevance_filtered),
+                    "candidate_count": len(relevance_filtered),
+                },
+            )
+            for memory, score in zero_relevance if trace is not None else []:
+                relevance_exclusion_reason = "Excluded because query relevance is zero"
                 self._trace_event(
                     trace,
-                    event_type="continuity_boost_applied",
-                    message="Applied related-session continuity score boost",
+                    event_type="retrieval_candidate_decision",
+                    message=relevance_exclusion_reason,
                     memory_id=memory.id,
                     session_id=memory.session_id,
                     data={
-                        "boost": score_trace_data(
+                        **_memory_trace_identity(memory),
+                        **score_trace_data(
                             memory,
                             score,
                             query=request.query,
                             current_session_id=active_session_id,
                             related_session_ids=related_session_ids,
-                        )["continuity_boost"]
+                        ),
+                        "rank": None,
+                        "included": False,
+                        "exclusion_reason": relevance_exclusion_reason,
+                    },
+                )
+            scored = relevance_filtered
+            scored.sort(
+                key=lambda item: (
+                    item[1].total,
+                    item[0].session_id == active_session_id if active_session_id is not None else False,
+                    item[0].updated_at,
+                    item[0].id,
+                ),
+                reverse=True,
+            )
+            candidates = [
+                MemorySearchResult(memory=memory, score=score, rank=index)
+                for index, (memory, score) in enumerate(scored, start=1)
+            ]
+            self._trace_event(
+                trace,
+                event_type="reranker_stage",
+                message="Reranker used" if should_use_reranker else "Reranker skipped",
+                data={
+                    "used": should_use_reranker,
+                    "initial_ranking_ids": [result.memory.id for result in candidates],
+                    "reranker_input_ids": [result.memory.id for result in candidates] if should_use_reranker else [],
+                },
+            )
+            ranked = self.reranking_engine.rerank(request.query, candidates) if should_use_reranker else candidates
+            self._trace_event(
+                trace,
+                event_type="ranking_completed",
+                message="Retrieval ranking completed",
+                data={
+                    "ranking_ids": [result.memory.id for result in ranked],
+                    "reranker_output_ids": [result.memory.id for result in ranked] if should_use_reranker else [],
+                },
+            )
+            results = ranked[: request.limit]
+            for result in ranked if trace is not None else []:
+                included = result.rank <= request.limit
+                exclusion_reason = (
+                    None if included else f"Excluded because rank {result.rank} exceeds limit {request.limit}"
+                )
+                self._trace_event(
+                    trace,
+                    event_type="retrieval_candidate_decision",
+                    message="Candidate included in final search results"
+                    if included
+                    else exclusion_reason or "Candidate excluded",
+                    memory_id=result.memory.id,
+                    session_id=result.memory.session_id,
+                    data={
+                        **_memory_trace_identity(result.memory),
+                        **score_trace_data(
+                            result.memory,
+                            result.score,
+                            query=request.query,
+                            current_session_id=active_session_id,
+                            related_session_ids=related_session_ids,
+                        ),
+                        "rank": result.rank,
+                        "included": included,
+                        "exclusion_reason": exclusion_reason,
                     },
                 )
             self._trace_event(
                 trace,
-                event_type="score_calculated",
-                message=f"Score {score.total:.3f} calculated for memory {memory.id}",
-                memory_id=memory.id,
-                session_id=memory.session_id,
-                data={
-                    **_memory_trace_identity(memory),
-                    **score_trace_data(
-                        memory,
-                        score,
-                        query=request.query,
-                        current_session_id=active_session_id,
-                        related_session_ids=related_session_ids,
-                    ),
-                    "total": score.total,
-                    "relevance": score.relevance,
-                    "importance": score.importance,
-                    "recency": score.recency,
-                    "frequency": score.frequency,
-                    "freshness": score.freshness,
-                    "semantic_relevance": score.semantic_relevance,
-                    "reasons": score.reasons,
-                },
+                event_type="final_results_selected",
+                message=f"Selected {len(results)} final search results",
+                data={"memory_ids": [result.memory.id for result in results]},
             )
-            scored.append((memory, score))
-
-        zero_relevance = [] if should_use_reranker else [item for item in scored if item[1].relevance <= 0]
-        relevance_filtered = scored if should_use_reranker else [item for item in scored if item[1].relevance > 0]
-        self._trace_event(
-            trace,
-            event_type="query_relevance_filtering",
-            message=(
-                "Query relevance filtering skipped for reranking"
-                if should_use_reranker
-                else f"Excluded {len(scored) - len(relevance_filtered)} zero-relevance memories"
-            ),
-            data={
-                "applied": not should_use_reranker,
-                "excluded_count": len(scored) - len(relevance_filtered),
-                "candidate_count": len(relevance_filtered),
-            },
-        )
-        for memory, score in zero_relevance:
-            relevance_exclusion_reason = "Excluded because query relevance is zero"
+            self._record_access((result.memory.id for result in results), trace=trace)
+            output = [
+                result.model_copy(update={"memory": self.store.get(result.memory.id) or result.memory})
+                for result in results
+            ]
+            self._end_trace(trace, summary=f"Search returned {len(output)} results")
+            return output
+        except Exception as exc:
             self._trace_event(
                 trace,
-                event_type="retrieval_candidate_decision",
-                message=relevance_exclusion_reason,
-                memory_id=memory.id,
-                session_id=memory.session_id,
-                data={
-                    **_memory_trace_identity(memory),
-                    **score_trace_data(
-                        memory,
-                        score,
-                        query=request.query,
-                        current_session_id=active_session_id,
-                        related_session_ids=related_session_ids,
-                    ),
-                    "rank": None,
-                    "included": False,
-                    "exclusion_reason": relevance_exclusion_reason,
-                },
+                event_type="operation_failed",
+                message="Retrieval operation failed",
+                data={"error_type": type(exc).__name__},
             )
-        scored = relevance_filtered
-        scored.sort(
-            key=lambda item: (
-                item[1].total,
-                item[0].session_id == active_session_id if active_session_id is not None else False,
-                item[0].updated_at,
-                item[0].id,
-            ),
-            reverse=True,
-        )
-        candidates = [
-            MemorySearchResult(memory=memory, score=score, rank=index)
-            for index, (memory, score) in enumerate(scored, start=1)
-        ]
-        self._trace_event(
-            trace,
-            event_type="reranker_stage",
-            message="Reranker used" if should_use_reranker else "Reranker skipped",
-            data={"used": should_use_reranker},
-        )
-        ranked = self.reranking_engine.rerank(request.query, candidates) if should_use_reranker else candidates
-        results = ranked[: request.limit]
-        for result in ranked:
-            included = result.rank <= request.limit
-            exclusion_reason = (
-                None if included else f"Excluded because rank {result.rank} exceeds limit {request.limit}"
-            )
-            self._trace_event(
-                trace,
-                event_type="retrieval_candidate_decision",
-                message="Candidate included in final search results"
-                if included
-                else exclusion_reason or "Candidate excluded",
-                memory_id=result.memory.id,
-                session_id=result.memory.session_id,
-                data={
-                    **_memory_trace_identity(result.memory),
-                    **score_trace_data(
-                        result.memory,
-                        result.score,
-                        query=request.query,
-                        current_session_id=active_session_id,
-                        related_session_ids=related_session_ids,
-                    ),
-                    "rank": result.rank,
-                    "included": included,
-                    "exclusion_reason": exclusion_reason,
-                },
-            )
-        self._trace_event(
-            trace,
-            event_type="final_results_selected",
-            message=f"Selected {len(results)} final search results",
-            data={"memory_ids": [result.memory.id for result in results]},
-        )
-        self._record_access((result.memory.id for result in results), trace=trace)
-        output = [
-            result.model_copy(update={"memory": self.store.get(result.memory.id) or result.memory})
-            for result in results
-        ]
-        self._end_trace(trace, summary=f"Search returned {len(output)} results")
-        return output
+            self._end_trace(trace, status="error", summary="Retrieval operation failed")
+            raise
 
     def _should_use_semantic(self, use_semantic: bool | None) -> bool:
         if use_semantic is True and self.embedding_provider is None:
@@ -908,7 +962,9 @@ class MemoryClient:
         """Run search and return a standardized local evaluation result."""
         before_trace_id = self.last_trace_id
         started = perf_counter()
-        candidate_count = len(self._searchable_memories(include_inactive=include_inactive or include_archived))
+        candidate_count = len(
+            self._searchable_memories(include_inactive=include_inactive, include_archived=include_archived)
+        )
         results = self.search(
             query,
             limit=limit,
@@ -1133,14 +1189,6 @@ class MemoryClient:
         )
         diff = self.compactor.compact(self.store.list(), policy=policy, use_llm=self._should_use_llm(use_llm))
         self._trace_compaction_decisions(trace, diff)
-        for decision in [*diff.discarded, *diff.merged]:
-            self.store.delete(decision.memory_id)
-            self._trace_event(
-                trace,
-                event_type="storage_mutation",
-                message=f"Deleted compacted memory {decision.memory_id}",
-                memory_id=decision.memory_id,
-            )
         for memory in diff.created:
             self.store.add(memory)
             self._trace_event(
@@ -1148,6 +1196,14 @@ class MemoryClient:
                 event_type="storage_mutation",
                 message=f"Added compacted memory {memory.id}",
                 memory_id=memory.id,
+            )
+        for decision in [*diff.discarded, *diff.merged]:
+            self.store.delete(decision.memory_id)
+            self._trace_event(
+                trace,
+                event_type="storage_mutation",
+                message=f"Deleted compacted memory {decision.memory_id}",
+                memory_id=decision.memory_id,
             )
         trace_id = self._end_trace(trace, summary=diff.summary)
         return diff.model_copy(update={"trace_id": trace_id})
@@ -1246,117 +1302,161 @@ class MemoryClient:
     ) -> ContextPackage:
         """Build an explainable context package for a query."""
         trace = self._start_trace("build_context", metadata={"query": query, "preset": str(preset)})
-        self._trace_event(
-            trace,
-            event_type="query_received",
-            message="Context query received",
-            data={"query": query},
-        )
-        context_policy, policy_name, preset_name = self._resolve_context_policy(
-            budget=budget,
-            preset=preset,
-            policy=policy,
-        )
-        self._trace_event(
-            trace,
-            event_type="context_policy_selected",
-            message=f"Selected context policy {policy_name}",
-            data={
-                "policy_name": policy_name,
-                "preset": preset_name,
-                "available_tokens": context_policy.available_tokens,
-                "max_tokens": context_policy.max_tokens,
-            },
-        )
-        self._trace_event(
-            trace,
-            event_type="context_budget_calculated",
-            message=f"Calculated context budget of {context_policy.available_tokens} available tokens",
-            data={
-                "max_tokens": context_policy.max_tokens,
-                "reserve_tokens": context_policy.reserve_tokens,
-                "available_tokens": context_policy.available_tokens,
-            },
-        )
-        memories = self._searchable_memories(
-            include_inactive=include_inactive,
-            include_archived=include_archived,
-        )
-        active_session_id = current_session_id or self.active_session_id
-        related_session_ids = self._related_session_ids(query, current_session_id=active_session_id)
-        self._trace_event(
-            trace,
-            event_type="context_candidates",
-            message=f"Context builder received {len(memories)} candidate memories",
-            data={"candidate_count": len(memories)},
-        )
-        package = self.context_builder.build(
-            query=query,
-            memories=memories,
-            policy=context_policy,
-            policy_name=policy_name,
-            preset=preset_name,
-            limit=limit,
-            active_session_id=active_session_id,
-            related_session_ids=related_session_ids,
-        )
-        estimated_tokens_by_memory_id = {item.memory_id: item.estimated_tokens for item in package.included}
-        estimated_tokens_by_memory_id.update({item.memory_id: item.estimated_tokens for item in package.excluded})
-        for decision in self.context_builder.diagnostics(package):
-            trace_data = {
-                **_memory_trace_identity(decision.memory),
-                **score_trace_data(
-                    decision.memory,
-                    decision.score,
-                    query=query,
-                    current_session_id=active_session_id,
-                    related_session_ids=related_session_ids,
-                ),
-                "rank": decision.rank,
-                "included": decision.included,
-                "exclusion_reason": None if decision.included else decision.reason,
-                "estimated_tokens": estimated_tokens_by_memory_id[decision.memory.id],
-            }
+        try:
             self._trace_event(
                 trace,
-                event_type="context_candidate_scored",
-                message=f"Context score {decision.score.total:.3f} calculated for memory {decision.memory.id}",
-                memory_id=decision.memory.id,
-                session_id=decision.memory.session_id,
-                data=trace_data,
+                event_type="query_received",
+                message="Context query received",
+                data={"query": query},
+            )
+            context_policy, policy_name, preset_name = self._resolve_context_policy(
+                budget=budget,
+                preset=preset,
+                policy=policy,
             )
             self._trace_event(
                 trace,
-                event_type="context_item_included" if decision.included else "context_item_excluded",
-                message=decision.reason,
-                memory_id=decision.memory.id,
-                session_id=decision.memory.session_id,
-                data=trace_data,
+                event_type="context_policy_selected",
+                message=f"Selected context policy {policy_name}",
+                data={
+                    "policy_name": policy_name,
+                    "preset": preset_name,
+                    "available_tokens": context_policy.available_tokens,
+                    "max_tokens": context_policy.max_tokens,
+                },
             )
-            if "duplicate content" in decision.reason:
+            self._trace_event(
+                trace,
+                event_type="context_budget_calculated",
+                message=f"Calculated context budget of {context_policy.available_tokens} available tokens",
+                data={
+                    "max_tokens": context_policy.max_tokens,
+                    "reserve_tokens": context_policy.reserve_tokens,
+                    "available_tokens": context_policy.available_tokens,
+                },
+            )
+            all_memories = self.store.list() if trace is not None else []
+            memories = self._searchable_memories(
+                include_inactive=include_inactive,
+                include_archived=include_archived,
+            )
+            active_session_id = current_session_id or self.active_session_id
+            related_session_ids = self._related_session_ids(query, current_session_id=active_session_id)
+            self._trace_event(
+                trace,
+                event_type="context_candidates",
+                message=f"Context builder received {len(memories)} candidate memories",
+                data={
+                    "candidate_count": len(memories),
+                    "initial_candidate_ids": [memory.id for memory in all_memories],
+                    "post_filter_candidate_ids": [memory.id for memory in memories],
+                },
+            )
+            self._trace_event(
+                trace,
+                event_type="effective_retrieval_config",
+                message="Effective context configuration",
+                data={
+                    "limit": limit,
+                    "include_inactive": include_inactive,
+                    "include_archived": include_archived,
+                    "current_session_id": active_session_id,
+                    "related_session_ids": sorted(related_session_ids),
+                    "context_policy": context_policy.model_dump(mode="json"),
+                    "scoring_policy": self.context_builder.scorer.policy.model_dump(mode="json"),
+                    "reference_time": self.context_builder.scorer.reference_time.isoformat()
+                    if self.context_builder.scorer.reference_time
+                    else None,
+                    "use_semantic": self.context_builder.scorer.embedding_provider is not None,
+                    "use_reranker": self.context_builder.reranker_provider is not None,
+                },
+            )
+            package = self.context_builder.build(
+                query=query,
+                memories=memories,
+                policy=context_policy,
+                policy_name=policy_name,
+                preset=preset_name,
+                limit=limit,
+                active_session_id=active_session_id,
+                related_session_ids=related_session_ids,
+            )
+            self._trace_event(
+                trace,
+                event_type="context_ranking_completed",
+                message="Context ranking and selection completed",
+                data={
+                    **package._retrieval_stages,
+                    "context_included_ids": [item.memory_id for item in package.included],
+                    "excluded_memory_ids": [item.memory_id for item in package.excluded],
+                },
+            )
+            estimated_tokens_by_memory_id = {item.memory_id: item.estimated_tokens for item in package.included}
+            estimated_tokens_by_memory_id.update({item.memory_id: item.estimated_tokens for item in package.excluded})
+            for decision in self.context_builder.diagnostics(package) if trace is not None else []:
+                trace_data = {
+                    **_memory_trace_identity(decision.memory),
+                    **score_trace_data(
+                        decision.memory,
+                        decision.score,
+                        query=query,
+                        current_session_id=active_session_id,
+                        related_session_ids=related_session_ids,
+                    ),
+                    "rank": decision.rank,
+                    "included": decision.included,
+                    "exclusion_reason": None if decision.included else decision.reason,
+                    "estimated_tokens": estimated_tokens_by_memory_id[decision.memory.id],
+                }
                 self._trace_event(
                     trace,
-                    event_type="duplicate_removed",
-                    message=decision.reason,
+                    event_type="context_candidate_scored",
+                    message=f"Context score {decision.score.total:.3f} calculated for memory {decision.memory.id}",
                     memory_id=decision.memory.id,
+                    session_id=decision.memory.session_id,
+                    data=trace_data,
                 )
-            if "budget exhausted" in decision.reason:
                 self._trace_event(
                     trace,
-                    event_type="budget_exhausted",
+                    event_type="context_item_included" if decision.included else "context_item_excluded",
                     message=decision.reason,
                     memory_id=decision.memory.id,
-                    data={"available_tokens": package.stats.available_tokens},
+                    session_id=decision.memory.session_id,
+                    data=trace_data,
                 )
-        self._trace_event(
-            trace,
-            event_type="context_stats",
-            message="Context package stats calculated",
-            data=package.stats.model_dump(mode="json"),
-        )
-        self._record_access((item.memory_id for item in package.included), trace=trace)
-        trace_id = self._end_trace(trace, summary=f"Built context with {len(package.included)} memories")
-        return package.model_copy(update={"trace_id": trace_id})
+                if "duplicate content" in decision.reason:
+                    self._trace_event(
+                        trace,
+                        event_type="duplicate_removed",
+                        message=decision.reason,
+                        memory_id=decision.memory.id,
+                    )
+                if "budget exhausted" in decision.reason:
+                    self._trace_event(
+                        trace,
+                        event_type="budget_exhausted",
+                        message=decision.reason,
+                        memory_id=decision.memory.id,
+                        data={"available_tokens": package.stats.available_tokens},
+                    )
+            self._trace_event(
+                trace,
+                event_type="context_stats",
+                message="Context package stats calculated",
+                data=package.stats.model_dump(mode="json"),
+            )
+            self._record_access((item.memory_id for item in package.included), trace=trace)
+            trace_id = self._end_trace(trace, summary=f"Built context with {len(package.included)} memories")
+            return package.model_copy(update={"trace_id": trace_id})
+        except Exception as exc:
+            self._trace_event(
+                trace,
+                event_type="operation_failed",
+                message="Retrieval operation failed",
+                data={"error_type": type(exc).__name__},
+            )
+            self._end_trace(trace, status="error", summary="Retrieval operation failed")
+            raise
 
     def _resolve_context_policy(
         self,

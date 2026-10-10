@@ -67,3 +67,10 @@ client.compact(policy=policy)
 ## Explainable Merges
 
 When memories are merged, Mneno creates a new memory that consolidates the metadata and tags of the sources. The `CompactionDiff` includes a list of `created` memories and links them to the `merged` sources via `related_memory_ids`.
+
+## Unresolved conflict evidence
+
+Compaction preserves memories marked conflicted or carrying conflict links, including their original IDs and provenance.
+These records bypass merge/discard and reduction caps. Replacement memories are inserted before source deletion.
+Compaction remains a destructive, nontransactional operation for other records; merged source audit/session history
+is not fully retained. Use a separate backup when that history is required. Preview does not mutate source list metadata.

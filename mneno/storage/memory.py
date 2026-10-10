@@ -16,6 +16,8 @@ class InMemoryMemoryStore:
         self._sessions: dict[str, Session] = {}
 
     def add(self, memory: Memory) -> Memory:
+        if memory.id in self._memories:
+            raise ValueError(f"Memory already exists: {memory.id}")
         self._memories[memory.id] = memory
         return memory
 

@@ -68,15 +68,26 @@ class TemporalMemoryScorer:
     """Score memories using recency, importance, access frequency, and keyword overlap."""
 
     def __init__(
-        self, *, policy: MemoryPolicy | None = None, embedding_provider: EmbeddingProvider | None = None
+        self,
+        *,
+        policy: MemoryPolicy | None = None,
+        embedding_provider: EmbeddingProvider | None = None,
+        reference_time: datetime | None = None,
     ) -> None:
         self.policy = policy or MemoryPolicy()
         self.embedding_provider = embedding_provider
+        self.reference_time = reference_time
 
     def score(self, memory: Memory, *, query: str = "", use_semantic: bool = True) -> MemoryScore:
         """Score a memory for a query."""
         embedding_provider = self.embedding_provider if use_semantic else None
-        return calculate_memory_score(memory, query=query, policy=self.policy, embedding_provider=embedding_provider)
+        return calculate_memory_score(
+            memory,
+            query=query,
+            policy=self.policy,
+            embedding_provider=embedding_provider,
+            reference_time=self.reference_time,
+        )
 
 
 def calculate_memory_score(
@@ -85,12 +96,16 @@ def calculate_memory_score(
     query: str = "",
     policy: MemoryPolicy | None = None,
     embedding_provider: EmbeddingProvider | None = None,
+    reference_time: datetime | None = None,
 ) -> MemoryScore:
     """Calculate a bounded, explainable score for a memory."""
     active_policy = policy or MemoryPolicy()
-    recency = _recency_score(memory.updated_at, half_life_days=active_policy.recency_half_life_days)
+    now = reference_time or datetime.now(UTC)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    recency = _recency_score(memory.updated_at, half_life_days=active_policy.recency_half_life_days, now=now)
     frequency = min(memory.access_count / 10.0, 1.0)
-    freshness = _freshness_score(memory.created_at, decay_days=active_policy.freshness_decay_days)
+    freshness = _freshness_score(memory.created_at, decay_days=active_policy.freshness_decay_days, now=now)
     lexical_match = _memory_lexical_match(query, memory)
     keyword_relevance = lexical_match.relevance
     semantic_relevance = _semantic_relevance(query, memory, embedding_provider=embedding_provider)
@@ -137,8 +152,7 @@ def calculate_memory_score(
     )
 
 
-def _recency_score(updated_at: datetime, *, half_life_days: float) -> float:
-    now = datetime.now(UTC)
+def _recency_score(updated_at: datetime, *, half_life_days: float, now: datetime) -> float:
     if updated_at.tzinfo is None:
         updated_at = updated_at.replace(tzinfo=UTC)
     age_seconds = max((now - updated_at).total_seconds(), 0.0)
@@ -146,8 +160,7 @@ def _recency_score(updated_at: datetime, *, half_life_days: float) -> float:
     return math.exp(-math.log(2) * age_seconds / half_life_seconds)
 
 
-def _freshness_score(created_at: datetime, *, decay_days: float) -> float:
-    now = datetime.now(UTC)
+def _freshness_score(created_at: datetime, *, decay_days: float, now: datetime) -> float:
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=UTC)
     age_days = max((now - created_at).total_seconds(), 0.0) / (24 * 60 * 60)
